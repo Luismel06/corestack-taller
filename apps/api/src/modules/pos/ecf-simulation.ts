@@ -253,7 +253,7 @@ ${xmlTaxTotals(tax)}
     recipientEmail: input.recipientEmail ?? input.customer?.email ?? null,
     status: 'PENDING_RESEND_CONFIGURATION' as const,
     email: {
-      subject: `Factura electrónica ${input.eNcf} · ${input.tenant.commercialName ?? input.tenant.name}`,
+      subject: `Factura de Consumo Electronica No.${input.eNcf} - CoreStack Systems`,
       text: [
         `Factura electrónica ${input.eNcf}`,
         `Emisor: ${issuerName}`,
