@@ -209,17 +209,12 @@ export class OrdersService {
 
     return this.prisma.$transaction(async (tx) => {
       const ecfRecipientEmail = electronicInvoiceRequested
-        ? (
-            await tx.tenant.findUniqueOrThrow({
-              where: { id: tenantId },
-              select: { email: true },
-            })
-          ).email?.trim() || null
+        ? dto.ecfRecipientEmail?.trim().toLowerCase() || null
         : null;
 
       if (electronicInvoiceRequested && !ecfRecipientEmail) {
         throw new BadRequestException(
-          'Configura el correo de la empresa antes de solicitar una factura electrónica.',
+          'Indica el correo del cliente para enviar la copia de la factura electrónica.',
         );
       }
 

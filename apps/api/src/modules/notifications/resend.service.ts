@@ -6,7 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 type EcfEmailCopy = {
   electronicDocumentId: string;
   invoiceId: string;
-  recipient: string;
+  recipients: string[];
   subject: string;
   templateVariables: Record<string, string>;
 };
@@ -32,34 +32,44 @@ export class ResendService {
 
     try {
       const resend = new Resend(apiKey);
-      const { data, error } = await resend.emails.send({
-        from,
-        to: [input.recipient],
-        subject: input.subject,
-        template: {
-          id: templateId,
-          variables: input.templateVariables,
-        },
-        headers: {
-          'Idempotency-Key': `ecf-copy-${input.invoiceId}`,
-        },
-      });
-
-      if (error || !data?.id) {
-        throw new Error(error?.message ?? 'Resend no devolvió un identificador de envío.');
+      if (!input.recipients.length) {
+        throw new Error('No hay destinatarios para la copia e-CF.');
       }
+
+      const deliveries = await Promise.all(
+        input.recipients.map(async (recipient, index) => {
+          const { data, error } = await resend.emails.send({
+            from,
+            to: [recipient],
+            subject: input.subject,
+            template: {
+              id: templateId,
+              variables: input.templateVariables,
+            },
+            headers: {
+              'Idempotency-Key': `ecf-copy-${input.invoiceId}-${index}`,
+            },
+          });
+
+          if (error || !data?.id) {
+            throw new Error(error?.message ?? `Resend no pudo enviar el correo a ${recipient}.`);
+          }
+
+          return { recipient, emailId: data.id };
+        }),
+      );
 
       await this.prisma.electronicDocument.update({
         where: { id: input.electronicDocumentId },
         data: {
           status: ElectronicDocumentStatus.SENT,
-          externalId: data.id,
+          externalId: deliveries.map((delivery) => delivery.emailId).join(','),
           errorMessage: null,
           responsePayload: {
             provider: 'RESEND',
             status: 'SENT',
-            emailId: data.id,
-            recipient: input.recipient,
+            deliveries,
+            recipients: input.recipients,
             sentAt: new Date().toISOString(),
           },
         },
