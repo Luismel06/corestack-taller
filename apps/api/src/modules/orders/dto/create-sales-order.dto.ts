@@ -15,6 +15,7 @@ import {
   CreditTermOption,
   DocumentType,
   InitialPaymentOption,
+  ProductInventoryDestination,
   SalePaymentMode,
   SalesOrderDestination,
   SalesOrderPriceLevel,
@@ -33,6 +34,10 @@ export class SalesOrderItemDto {
 export class CreateSalesOrderDto {
   @IsEnum(SalesOrderDestination)
   destination: SalesOrderDestination;
+
+  @IsOptional()
+  @IsEnum(ProductInventoryDestination)
+  inventorySource?: ProductInventoryDestination;
 
   @IsOptional()
   @IsBoolean()

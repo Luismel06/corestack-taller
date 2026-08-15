@@ -282,6 +282,7 @@ export type WarehouseProductPayload = {
   description?: string;
   unit?: string;
   cost?: number;
+  salePrice?: number;
   initialQuantity?: number;
 };
 
@@ -499,6 +500,7 @@ export type SalesOrder = {
   tenantId: string;
   customerId: string | null;
   destination: 'CASH_SALE' | 'QUOTATION';
+  inventorySource: 'SALES_INVENTORY' | 'WAREHOUSE';
   clientName: string | null;
   quotationDocumentType: string | null;
   quotationDocumentNumber: string | null;
@@ -586,6 +588,7 @@ export type SalesOrder = {
 
 export type CreateSalesOrderPayload = {
   destination: 'CASH_SALE' | 'QUOTATION';
+  inventorySource?: 'SALES_INVENTORY' | 'WAREHOUSE';
   electronicInvoiceRequested?: boolean;
   clientName?: string;
   customerId?: string;
@@ -2013,16 +2016,28 @@ export function acceptSalesOrder(tenantId: string, accessToken: string, orderId:
   });
 }
 
-export function searchOrderProducts(tenantId: string, accessToken: string, q: string) {
-  return fetchJson<Product[]>(`/orders/products/search?q=${encodeURIComponent(q)}`, {
-    headers: tenantHeaders(tenantId, accessToken),
-  });
+export function searchOrderProducts(
+  tenantId: string,
+  accessToken: string,
+  q: string,
+  inventorySource: 'SALES_INVENTORY' | 'WAREHOUSE' = 'SALES_INVENTORY',
+) {
+  return fetchJson<Product[]>(
+    `/orders/products/search?q=${encodeURIComponent(q)}&inventorySource=${inventorySource}`,
+    { headers: tenantHeaders(tenantId, accessToken) },
+  );
 }
 
-export function getOrderProductByBarcode(tenantId: string, accessToken: string, barcode: string) {
-  return fetchJson<Product>(`/orders/products/barcode/${encodeURIComponent(barcode)}`, {
-    headers: tenantHeaders(tenantId, accessToken),
-  });
+export function getOrderProductByBarcode(
+  tenantId: string,
+  accessToken: string,
+  barcode: string,
+  inventorySource: 'SALES_INVENTORY' | 'WAREHOUSE' = 'SALES_INVENTORY',
+) {
+  return fetchJson<Product>(
+    `/orders/products/barcode/${encodeURIComponent(barcode)}?inventorySource=${inventorySource}`,
+    { headers: tenantHeaders(tenantId, accessToken) },
+  );
 }
 
 export function createProduct(

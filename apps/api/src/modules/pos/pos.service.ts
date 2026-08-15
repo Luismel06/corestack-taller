@@ -32,6 +32,7 @@ import {
   SalePaymentMode,
   SalesOrderDestination,
   SalesOrderStatus,
+  WarehouseMovementType,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
@@ -435,6 +436,7 @@ export class PosService {
           invoiceNumber: invoice.invoiceNumber,
           userId: user.id,
           fromOrder: Boolean(order),
+          inventorySource: order?.inventorySource ?? ProductInventoryDestination.SALES_INVENTORY,
         });
       }
 
@@ -850,6 +852,7 @@ export class PosService {
   }
 
   private async computeSaleFromOrder(order: {
+    inventorySource: ProductInventoryDestination;
     items: Array<{
       productId: string | null;
       sku: string | null;
@@ -938,15 +941,54 @@ export class PosService {
       invoiceNumber: string;
       userId: string;
       fromOrder: boolean;
+      inventorySource: ProductInventoryDestination;
     },
   ) {
-    const { tenantId, item, invoiceId, invoiceNumber, userId, fromOrder } = args;
+    const { tenantId, item, invoiceId, invoiceNumber, userId, fromOrder, inventorySource } = args;
+
+    const quantity = item.quantity.toNumber();
+    if (inventorySource === ProductInventoryDestination.WAREHOUSE) {
+      if (requiresWholeQuantity(item.product.unit) && !Number.isInteger(quantity)) {
+        throw new BadRequestException(
+          `Warehouse product ${item.description} requires whole quantities.`,
+        );
+      }
+
+      const updated = await tx.$queryRaw<Array<{ quantity: number }>>`
+        UPDATE "WarehouseStock"
+        SET "quantity" = "quantity" - ${quantity}, "updatedAt" = NOW()
+        WHERE "tenantId" = ${tenantId}
+          AND "productId" = ${item.productId}
+          AND "quantity" >= ${quantity}
+        RETURNING "quantity"
+      `;
+
+      if (updated.length !== 1) {
+        throw new BadRequestException(`Insufficient warehouse stock for ${item.description}.`);
+      }
+
+      const newQuantity = updated[0].quantity;
+      await tx.warehouseMovement.create({
+        data: {
+          tenantId,
+          productId: item.productId,
+          type: WarehouseMovementType.SALE,
+          quantity,
+          previousQuantity: newQuantity + quantity,
+          newQuantity,
+          unitCost: item.product.cost,
+          reason: 'Venta B2B facturada desde toma de órdenes',
+          reference: invoiceNumber,
+          createdById: userId,
+        },
+      });
+      return;
+    }
 
     if (!item.product.trackInventory) {
       return;
     }
 
-    const quantity = item.quantity.toNumber();
     if (requiresWholeQuantity(item.product.unit) && !Number.isInteger(quantity)) {
       throw new BadRequestException(
         `Tracked product ${item.description} requires whole quantities.`,

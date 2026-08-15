@@ -2,13 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, PackagePlus, Pencil, Plus, Trash2, Warehouse } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -18,14 +16,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  createWarehouseProduct,
   deleteWarehouseProduct,
   getWarehouseMovements,
   getWarehouseProducts,
   getWarehouseStock,
-  updateWarehouseProduct,
   type Product,
-  type WarehouseProductPayload,
 } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
@@ -41,22 +36,9 @@ type WarehouseCatalogProduct = Product & {
   }>;
 };
 
-const emptyForm = (): WarehouseProductPayload => ({
-  name: '',
-  sku: '',
-  barcode: '',
-  brand: '',
-  description: '',
-  unit: 'UNIT',
-  cost: undefined,
-  initialQuantity: 0,
-});
-
 export function WarehouseView() {
   const session = useCurrentSession();
   const queryClient = useQueryClient();
-  const [editingProduct, setEditingProduct] = useState<WarehouseCatalogProduct | null>(null);
-  const [form, setForm] = useState<WarehouseProductPayload>(emptyForm);
 
   const stockQuery = useQuery({
     queryKey: ['warehouse-stock', session?.tenantId],
@@ -72,52 +54,6 @@ export function WarehouseView() {
     queryKey: ['warehouse-products', session?.tenantId],
     queryFn: () => getWarehouseProducts(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session),
-  });
-
-  const saveMutation = useMutation({
-    mutationFn: () => {
-      if (!session) throw new Error('Sesión requerida.');
-      if (!form.name.trim()) throw new Error('Indica el nombre del producto.');
-
-      const payload: WarehouseProductPayload = {
-        ...form,
-        name: form.name.trim(),
-        sku: form.sku?.trim() || undefined,
-        barcode: form.barcode?.trim() || undefined,
-        brand: form.brand?.trim() || undefined,
-        description: form.description?.trim() || undefined,
-        cost: form.cost === undefined ? undefined : Number(form.cost),
-        initialQuantity: form.initialQuantity === undefined ? 0 : Number(form.initialQuantity),
-      };
-
-      if (editingProduct) {
-        const { initialQuantity: _initialQuantity, ...updatePayload } = payload;
-        return updateWarehouseProduct(
-          session.tenantId,
-          session.accessToken,
-          editingProduct.id,
-          updatePayload,
-        );
-      }
-
-      return createWarehouseProduct(session.tenantId, session.accessToken, payload);
-    },
-    onSuccess: async () => {
-      const message = editingProduct
-        ? 'Producto de almacén actualizado.'
-        : 'Producto agregado al almacén.';
-      setEditingProduct(null);
-      setForm(emptyForm());
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['warehouse-products'] }),
-        queryClient.invalidateQueries({ queryKey: ['warehouse-stock'] }),
-        queryClient.invalidateQueries({ queryKey: ['warehouse-movements'] }),
-      ]);
-      toast.success(message);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : 'No se pudo guardar el producto.');
-    },
   });
 
   const deleteMutation = useMutation({
@@ -139,25 +75,6 @@ export function WarehouseView() {
   const stock = stockQuery.data ?? [];
   const totalUnits = stock.reduce((sum, item) => sum + item.quantity, 0);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    saveMutation.mutate();
-  }
-
-  function edit(product: WarehouseCatalogProduct) {
-    setEditingProduct(product);
-    setForm({
-      name: product.name,
-      sku: product.sku ?? '',
-      barcode: product.barcode ?? '',
-      brand: product.brand ?? '',
-      description: product.description ?? '',
-      unit: product.unit,
-      cost: product.cost === null ? undefined : Number(product.cost),
-      initialQuantity: 0,
-    });
-  }
-
   return (
     <div className="space-y-6">
       <ModuleHeader
@@ -175,104 +92,21 @@ export function WarehouseView() {
         />
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {editingProduct ? 'Editar producto de almacén' : 'Agregar producto de almacén'}
-          </CardTitle>
-          <CardDescription>
-            Estos productos solo estarán disponibles al crear una orden de compra dirigida a
-            Almacén.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-4 md:grid-cols-3" onSubmit={submit}>
-            <Field label="Nombre" required>
-              <Input
-                value={form.name}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-                maxLength={160}
-              />
-            </Field>
-            <Field label="SKU / código">
-              <Input
-                value={form.sku ?? ''}
-                onChange={(event) => setForm({ ...form, sku: event.target.value })}
-                maxLength={80}
-              />
-            </Field>
-            <Field label="Código de barras">
-              <Input
-                value={form.barcode ?? ''}
-                onChange={(event) => setForm({ ...form, barcode: event.target.value })}
-                maxLength={80}
-              />
-            </Field>
-            <Field label="Marca">
-              <Input
-                value={form.brand ?? ''}
-                onChange={(event) => setForm({ ...form, brand: event.target.value })}
-                maxLength={80}
-              />
-            </Field>
-            <Field label="Costo unitario">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.cost ?? ''}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    cost: event.target.value === '' ? undefined : Number(event.target.value),
-                  })
-                }
-              />
-            </Field>
-            {!editingProduct ? (
-              <Field label="Existencia inicial">
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  value={form.initialQuantity ?? 0}
-                  onChange={(event) =>
-                    setForm({ ...form, initialQuantity: Number(event.target.value) })
-                  }
-                />
-              </Field>
-            ) : null}
-            <div className="flex items-end gap-2 md:col-span-3">
-              <Button type="submit" disabled={saveMutation.isPending}>
-                <Plus className="h-4 w-4" />
-                {saveMutation.isPending
-                  ? 'Guardando...'
-                  : editingProduct
-                    ? 'Guardar cambios'
-                    : 'Agregar producto'}
-              </Button>
-              {editingProduct ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setEditingProduct(null);
-                    setForm(emptyForm());
-                  }}
-                >
-                  Cancelar
-                </Button>
-              ) : null}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <div className="flex justify-end">
+        <Button asChild>
+          <Link href="/warehouse/new">
+            <Plus className="h-4 w-4" />
+            Nuevo producto
+          </Link>
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Productos de almacén</CardTitle>
           <CardDescription>
-            Administra productos B2B sin exponerlos a ventas de mostrador.
+            Administra productos B2B que se venden desde Toma de órdenes, sin exponerlos a ventas de
+            mostrador.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -283,6 +117,7 @@ export function WarehouseView() {
                   <TableHead>Producto</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Existencia</TableHead>
+                  <TableHead className="text-right">Precio B2B</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
@@ -300,6 +135,9 @@ export function WarehouseView() {
                     <TableCell>
                       {formatQuantity(product.warehouseStocks[0]?.quantity ?? 0)}
                     </TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(Number(product.salePrice ?? product.price))}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={product.status === 'ACTIVE' ? 'success' : 'outline'}>
                         {product.status === 'ACTIVE' ? 'Activo' : 'Eliminado'}
@@ -307,14 +145,11 @@ export function WarehouseView() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => edit(product)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Editar
+                        <Button asChild type="button" variant="outline" size="sm">
+                          <Link href={`/warehouse/${product.id}/edit`}>
+                            <Pencil className="h-4 w-4" />
+                            Editar
+                          </Link>
                         </Button>
                         {product.status === 'ACTIVE' ? (
                           <Button
@@ -334,9 +169,9 @@ export function WarehouseView() {
                 ))}
                 {!productsQuery.data?.length ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
-                      Aún no hay productos de almacén. Agrega el primero para poder incluirlo en una
-                      orden de compra.
+                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                      Aún no hay productos de almacén. Agrega el primero para venderlo desde Toma de
+                      órdenes como Almacén B2B.
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -350,7 +185,8 @@ export function WarehouseView() {
         <CardHeader>
           <CardTitle>Existencias de almacén</CardTitle>
           <CardDescription>
-            Estas cantidades no se suman al stock disponible para tomar órdenes ni caja POS.
+            Estas cantidades se descuentan al facturar una orden marcada como Almacén B2B. No se
+            suman al inventario de ventas ni al POS directo.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -397,7 +233,7 @@ export function WarehouseView() {
         <CardHeader>
           <CardTitle>Movimientos del almacén</CardTitle>
           <CardDescription>
-            Entradas y reversiones originadas por existencias iniciales y recepciones de compra.
+            Entradas, salidas B2B y reversiones originadas por existencias iniciales y compras.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -444,26 +280,6 @@ export function WarehouseView() {
   );
 }
 
-function Field({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label>
-        {label}
-        {required ? ' *' : ''}
-      </Label>
-      {children}
-    </div>
-  );
-}
-
 function StatCard({
   icon: Icon,
   label,
@@ -486,6 +302,7 @@ function StatCard({
 
 function warehouseMovementLabel(type: string) {
   if (type === 'PURCHASE') return 'Entrada por compra';
+  if (type === 'SALE') return 'Venta B2B';
   if (type === 'ADJUSTMENT_OUT') return 'Salida / reversión';
   return 'Existencia inicial / ajuste';
 }

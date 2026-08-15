@@ -64,6 +64,7 @@ type WindowWithBarcodeDetector = Window &
   typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor };
 
 type OrderDestination = 'CASH_SALE' | 'QUOTATION';
+type InventorySource = 'SALES_INVENTORY' | 'WAREHOUSE';
 const finalDiscountCustomerId = '__FINAL_DISCOUNT_10__';
 const finalPreferredCustomerId = '__FINAL_PREFERRED_18__';
 
@@ -170,6 +171,7 @@ export function OrdersView() {
   const editToastShownRef = useRef<string | null>(null);
 
   const [destination, setDestination] = useState<OrderDestination>('CASH_SALE');
+  const [inventorySource, setInventorySource] = useState<InventorySource>('SALES_INVENTORY');
   const [electronicInvoiceRequested, setElectronicInvoiceRequested] = useState(false);
   const [clientName, setClientName] = useState('');
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
@@ -207,9 +209,14 @@ export function OrdersView() {
     enabled: canUseOrderTaking,
   });
   const productsQuery = useQuery({
-    queryKey: ['order-products-search', session?.tenantId, search],
+    queryKey: ['order-products-search', session?.tenantId, search, inventorySource],
     queryFn: () =>
-      searchOrderProducts(session?.tenantId ?? '', session?.accessToken ?? '', search || 'RIV'),
+      searchOrderProducts(
+        session?.tenantId ?? '',
+        session?.accessToken ?? '',
+        search || 'RIV',
+        inventorySource,
+      ),
     enabled: canUseOrderTaking,
   });
   const pendingOrdersQuery = useQuery({
@@ -279,6 +286,7 @@ export function OrdersView() {
 
         // Cargar datos
         setDestination('QUOTATION');
+        setInventorySource(order.inventorySource ?? 'SALES_INVENTORY');
         setElectronicInvoiceRequested(order.electronicInvoiceRequested);
         setClientName(order.clientName || '');
         setCustomerId(order.customerId || getSpecialCustomerValue(order.priceLevel));
@@ -432,7 +440,12 @@ export function OrdersView() {
         throw new Error('Sesion requerida.');
       }
 
-      return getOrderProductByBarcode(session.tenantId, session.accessToken, code);
+      return getOrderProductByBarcode(
+        session.tenantId,
+        session.accessToken,
+        code,
+        inventorySource,
+      );
     },
     onSuccess: (product) => {
       const added = addProduct(product);
@@ -494,6 +507,7 @@ export function OrdersView() {
 
       const payload = {
         destination,
+        inventorySource,
         electronicInvoiceRequested:
           destination === 'CASH_SALE' ? electronicInvoiceRequested : false,
         clientName: trimmedClientName,
@@ -539,6 +553,7 @@ export function OrdersView() {
             : `Ticket pendiente ${order.orderNumber} enviado a caja. No es una factura fiscal.`;
       setMessage(successMessage);
       setCart([]);
+      setInventorySource('SALES_INVENTORY');
       setElectronicInvoiceRequested(false);
       setNotes('');
       setCustomerId('');
@@ -754,6 +769,19 @@ export function OrdersView() {
     }
   }
 
+  function handleInventorySourceChange(nextInventorySource: InventorySource) {
+    if (nextInventorySource === inventorySource) return;
+    setInventorySource(nextInventorySource);
+    setCart([]);
+    setCategoryFilter('ALL');
+    setBrandFilter('ALL');
+    setMessage(
+      nextInventorySource === 'WAREHOUSE'
+        ? 'Catálogo B2B de almacén seleccionado.'
+        : 'Catálogo de inventario de ventas seleccionado.',
+    );
+  }
+
   function enableScanner() {
     setScannerEnabled(true);
     setScannerMessage(
@@ -962,6 +990,7 @@ export function OrdersView() {
             <PosProductGrid
               products={filteredProducts}
               quantitiesByProduct={quantitiesByProduct}
+              inventorySource={inventorySource}
               isLoading={productsQuery.isLoading}
               onAddProduct={addProduct}
             />
@@ -1063,6 +1092,41 @@ export function OrdersView() {
                       Cotizacion
                     </button>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Origen de la venta</Label>
+                  <div className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-white p-1">
+                    <button
+                      type="button"
+                      disabled={Boolean(editOrderId)}
+                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        inventorySource === 'SALES_INVENTORY'
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-zinc-600 hover:bg-zinc-50'
+                      }`}
+                      onClick={() => handleInventorySourceChange('SALES_INVENTORY')}
+                    >
+                      Inventario
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(editOrderId)}
+                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        inventorySource === 'WAREHOUSE'
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-zinc-600 hover:bg-zinc-50'
+                      }`}
+                      onClick={() => handleInventorySourceChange('WAREHOUSE')}
+                    >
+                      Almacén B2B
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {inventorySource === 'WAREHOUSE'
+                      ? 'La venta descontará únicamente las existencias del almacén.'
+                      : 'La venta descontará únicamente el inventario de ventas.'}
+                  </p>
                 </div>
 
                 {destination === 'CASH_SALE' ? (
@@ -1707,6 +1771,9 @@ function PendingOrdersPanel({
                     <p className="font-semibold text-zinc-950">{order.orderNumber}</p>
                     <Badge variant={getStatusVariant(order.status)}>
                       {translateStatus(order.status)}
+                    </Badge>
+                    <Badge variant="outline">
+                      {order.inventorySource === 'WAREHOUSE' ? 'Almacén B2B' : 'Inventario'}
                     </Badge>
                     {order.paymentMode === 'CREDIT' ? (
                       <Badge variant="outline">
