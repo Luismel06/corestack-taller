@@ -48,6 +48,7 @@ export class WarehouseService {
 
     const initialQuantity = dto.initialQuantity ?? 0;
     const cost = dto.cost === undefined ? null : new Prisma.Decimal(dto.cost);
+    const salePrice = new Prisma.Decimal(dto.salePrice ?? 0);
     const product = await this.prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
         data: {
@@ -58,8 +59,8 @@ export class WarehouseService {
           brand: dto.brand?.trim() || null,
           description: dto.description?.trim() || null,
           unit: dto.unit ?? ProductUnit.UNIT,
-          price: 0,
-          salePrice: 0,
+          price: salePrice,
+          salePrice,
           cost,
           taxCategory: dto.taxCategory ?? TaxCategory.ITBIS_18,
           taxRate: dto.taxRate ?? 0.18,
@@ -118,6 +119,8 @@ export class WarehouseService {
         description: dto.description === undefined ? undefined : dto.description.trim() || null,
         unit: dto.unit,
         cost: dto.cost === undefined ? undefined : new Prisma.Decimal(dto.cost),
+        price: dto.salePrice === undefined ? undefined : new Prisma.Decimal(dto.salePrice),
+        salePrice: dto.salePrice === undefined ? undefined : new Prisma.Decimal(dto.salePrice),
         taxCategory: dto.taxCategory,
         taxRate: dto.taxRate,
       },

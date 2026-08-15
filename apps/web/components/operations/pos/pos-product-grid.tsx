@@ -16,6 +16,7 @@ import {
 type PosProductGridProps = {
   products: Product[];
   quantitiesByProduct: Record<string, number>;
+  inventorySource?: 'SALES_INVENTORY' | 'WAREHOUSE';
   isLoading?: boolean;
   onAddProduct: (product: Product) => void;
 };
@@ -23,6 +24,7 @@ type PosProductGridProps = {
 export function PosProductGrid({
   products,
   quantitiesByProduct,
+  inventorySource = 'SALES_INVENTORY',
   isLoading,
   onAddProduct,
 }: PosProductGridProps) {
@@ -77,7 +79,9 @@ export function PosProductGrid({
                 <Badge variant={lowStock || outOfStock ? 'danger' : 'outline'}>
                   {outOfStock
                     ? 'Sin stock'
-                    : product.trackInventory
+                    : inventorySource === 'WAREHOUSE'
+                      ? 'Almacén B2B'
+                      : product.trackInventory
                       ? formatQuantity(availableStock)
                       : 'Servicio'}
                 </Badge>

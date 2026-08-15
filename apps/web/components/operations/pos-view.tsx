@@ -832,6 +832,9 @@ export function PosView() {
                     Quitar y elegir otra
                   </Button>
                 </div>
+                <div className="text-xs font-semibold">
+                  Origen: {loadedOrder.inventorySource === 'WAREHOUSE' ? 'Almacén B2B' : 'Inventario'}
+                </div>
                 {loadedOrder.notes ? (
                   <div className="mt-1 border-t border-primary/20 pt-1 text-xs text-primary">
                     <span className="font-semibold">Nota:</span> {loadedOrder.notes}
@@ -1040,6 +1043,9 @@ function SalesOrdersQueuePanel({
                       <p className="font-semibold text-zinc-950">{getOrderClientLabel(order)}</p>
                       <Badge variant={getStatusVariant(order.status)}>
                         {translateStatus(order.status)}
+                      </Badge>
+                      <Badge variant="outline">
+                        {order.inventorySource === 'WAREHOUSE' ? 'Almacén B2B' : 'Inventario'}
                       </Badge>
                       {order.paymentMode === 'CREDIT' ? (
                         <Badge variant="outline">

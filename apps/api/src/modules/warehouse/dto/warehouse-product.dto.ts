@@ -48,6 +48,12 @@ export class CreateWarehouseProductDto {
   cost?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  salePrice?: number;
+
+  @IsOptional()
   @IsEnum(TaxCategory)
   taxCategory?: TaxCategory;
 

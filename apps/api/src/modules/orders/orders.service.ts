@@ -124,7 +124,12 @@ export class OrdersService {
     return order;
   }
 
-  async searchProducts(tenantId: string, user: AuthenticatedUser, q: string) {
+  async searchProducts(
+    tenantId: string,
+    user: AuthenticatedUser,
+    q: string,
+    inventorySource: ProductInventoryDestination = ProductInventoryDestination.SALES_INVENTORY,
+  ) {
     await this.ensureCanTakeOrders(tenantId, user);
     const query = q.trim();
 
@@ -135,7 +140,7 @@ export class OrdersService {
     return this.prisma.product.findMany({
       where: {
         tenantId,
-        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        inventoryDestination: inventorySource,
         status: ProductStatus.ACTIVE,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
@@ -150,13 +155,18 @@ export class OrdersService {
     });
   }
 
-  async findProductByBarcode(tenantId: string, user: AuthenticatedUser, barcode: string) {
+  async findProductByBarcode(
+    tenantId: string,
+    user: AuthenticatedUser,
+    barcode: string,
+    inventorySource: ProductInventoryDestination = ProductInventoryDestination.SALES_INVENTORY,
+  ) {
     await this.ensureCanTakeOrders(tenantId, user);
     const lookupCandidates = getBarcodeLookupCandidates(barcode);
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
-        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        inventoryDestination: inventorySource,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -184,6 +194,7 @@ export class OrdersService {
 
     const clientName = dto.clientName?.trim() || undefined;
     const destination = dto.destination ?? SalesOrderDestination.CASH_SALE;
+    const inventorySource = dto.inventorySource ?? ProductInventoryDestination.SALES_INVENTORY;
     const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
     const discountRate = this.getDiscountRate(priceLevel);
     const paymentMode = dto.paymentMode ?? SalePaymentMode.CASH;
@@ -229,7 +240,13 @@ export class OrdersService {
         this.validateCreditCustomer(customer);
       }
 
-      const computed = await this.computeOrder(tenantId, dto.items, tx, priceLevel);
+      const computed = await this.computeOrder(
+        tenantId,
+        dto.items,
+        tx,
+        priceLevel,
+        inventorySource,
+      );
       const isQuotation = destination === SalesOrderDestination.QUOTATION;
       const isCredit = paymentMode === SalePaymentMode.CREDIT;
       const initialPaymentOption = isCredit ? dto.initialPaymentOption : undefined;
@@ -244,7 +261,11 @@ export class OrdersService {
           : null;
       const waitsForCreditApproval = isCredit && !isQuotation;
 
-      if (!isQuotation && !isCredit) {
+      if (
+        !isQuotation &&
+        !isCredit &&
+        inventorySource === ProductInventoryDestination.SALES_INVENTORY
+      ) {
         await this.reserveStockForOrder(tenantId, computed.items, tx);
       }
 
@@ -259,6 +280,7 @@ export class OrdersService {
           tenantId,
           customerId: customer?.id,
           destination,
+          inventorySource,
           clientName,
           quotationDocumentType: isQuotation ? dto.quotationDocumentType : undefined,
           quotationDocumentNumber:
@@ -727,17 +749,30 @@ export class OrdersService {
       }));
 
       // Compute order and validate stock
-      const computed = await this.computeOrder(tenantId, orderItems, tx, order.priceLevel);
+      const computed = await this.computeOrder(
+        tenantId,
+        orderItems,
+        tx,
+        order.priceLevel,
+        order.inventorySource,
+      );
 
       // Reserve stock for the order
-      await this.reserveStockForOrder(tenantId, computed.items, tx);
+      if (order.inventorySource === ProductInventoryDestination.SALES_INVENTORY) {
+        await this.reserveStockForOrder(tenantId, computed.items, tx);
+      }
 
       // Update the reservedQuantity of each item
       for (const item of order.items) {
         const reservedQuantity = Number(item.quantity);
         await tx.salesOrderItem.update({
           where: { id: item.id },
-          data: { reservedQuantity },
+          data: {
+            reservedQuantity:
+              order.inventorySource === ProductInventoryDestination.SALES_INVENTORY
+                ? reservedQuantity
+                : 0,
+          },
         });
       }
 
@@ -831,7 +866,11 @@ export class OrdersService {
 
       const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
       const discountRate = this.getDiscountRate(priceLevel);
-      const computed = await this.computeOrder(tenantId, dto.items, tx, priceLevel);
+      const inventorySource = dto.inventorySource ?? order.inventorySource;
+      if (inventorySource !== order.inventorySource) {
+        throw new BadRequestException('The inventory source cannot be changed after creating a quotation.');
+      }
+      const computed = await this.computeOrder(tenantId, dto.items, tx, priceLevel, inventorySource);
 
       // Update order fields
       const updated = await tx.salesOrder.update({
@@ -906,6 +945,7 @@ export class OrdersService {
     items: SalesOrderItemDto[],
     client: PrismaService | Prisma.TransactionClient = this.prisma,
     priceLevel: SalesOrderPriceLevel = SalesOrderPriceLevel.REGULAR,
+    inventorySource: ProductInventoryDestination = ProductInventoryDestination.SALES_INVENTORY,
   ) {
     if (!items.length) {
       throw new BadRequestException('Sales order must include at least one item.');
@@ -922,7 +962,7 @@ export class OrdersService {
     const products = await client.product.findMany({
       where: {
         tenantId,
-        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        inventoryDestination: inventorySource,
         id: { in: Array.from(quantitiesByProduct.keys()) },
         status: ProductStatus.ACTIVE,
       },
