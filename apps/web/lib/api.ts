@@ -6,6 +6,22 @@ export type Tenant = {
   slug: string;
 };
 
+export type FiscalSequenceAlert = {
+  id: string;
+  documentType: string;
+  prefix: string;
+  nextNumber: number;
+  endNumber: number;
+  remaining: number;
+  threshold: number;
+  validUntil: string | null;
+  status: string;
+  severity: 'warning' | 'critical';
+  expired: boolean;
+  exhausted: boolean;
+  missing?: boolean;
+};
+
 export type DashboardSummary = {
   totalBilledMonth: number;
   totalBilledToday: number;
@@ -76,15 +92,7 @@ export type DashboardSummary = {
   }>;
   recentCashMovements: CashMovement[];
   recentEmployeeLogs: EmployeeLog[];
-  fiscalSequenceAlerts: Array<{
-    id: string;
-    documentType: string;
-    prefix: string;
-    nextNumber: number;
-    endNumber: number;
-    remaining: number;
-    validUntil: string | null;
-  }>;
+  fiscalSequenceAlerts: FiscalSequenceAlert[];
   employeeSummary: {
     activeEmployees: number;
     openCashSessions: number;
@@ -240,6 +248,31 @@ export type InventoryMovement = {
   product: Product;
 };
 
+export type WarehouseStock = {
+  id: string;
+  tenantId: string;
+  productId: string;
+  quantity: number;
+  unitCost: string | null;
+  createdAt: string;
+  updatedAt: string;
+  product: Product;
+};
+
+export type WarehouseMovement = {
+  id: string;
+  type: 'PURCHASE' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT';
+  quantity: number;
+  previousQuantity: number | null;
+  newQuantity: number | null;
+  unitCost: string | null;
+  reason: string | null;
+  reference: string | null;
+  createdAt: string;
+  product: Pick<Product, 'id' | 'name' | 'sku' | 'barcode' | 'unit'>;
+  createdBy: { id: string; name: string; email: string } | null;
+};
+
 export type Invoice = {
   id: string;
   tenantId: string;
@@ -269,6 +302,7 @@ export type Invoice = {
     commercialName: string | null;
     legalName: string | null;
     rnc: string | null;
+    email: string | null;
     phone: string | null;
     address: string | null;
   };
@@ -294,6 +328,14 @@ export type Invoice = {
     id: string;
     orderNumber: string;
     status: string;
+  } | null;
+  cashSession?: {
+    id: string;
+    cashRegister: {
+      id: string;
+      name: string;
+      location: string | null;
+    };
   } | null;
   items: Array<{
     id: string;
@@ -327,6 +369,8 @@ export type CreateInvoicePayload = {
 export type PosSalePayload = {
   customerId?: string;
   documentType: string;
+  fiscalDocumentType?: 'RNC' | 'CEDULA';
+  fiscalDocumentNumber?: string;
   paymentMethod: string;
   amountReceived?: number;
   cashSessionId?: string;
@@ -446,6 +490,8 @@ export type SalesOrder = {
   clientName: string | null;
   quotationDocumentType: string | null;
   quotationDocumentNumber: string | null;
+  electronicInvoiceRequested: boolean;
+  ecfRecipientEmail: string | null;
   orderNumber: string;
   status: string;
   priceLevel: SalesOrderPriceLevel;
@@ -528,6 +574,7 @@ export type SalesOrder = {
 
 export type CreateSalesOrderPayload = {
   destination: 'CASH_SALE' | 'QUOTATION';
+  electronicInvoiceRequested?: boolean;
   clientName?: string;
   customerId?: string;
   priceLevel?: SalesOrderPriceLevel;
@@ -841,8 +888,27 @@ export type FiscalSequence = {
   startNumber: number;
   endNumber: number;
   nextNumber: number;
+  authorizationNumber: string | null;
   validUntil: string | null;
   status: string;
+  issuerDocumentType: 'RNC' | 'CEDULA' | null;
+  issuerDocumentNumber: string | null;
+};
+
+export type CreateCashRegisterPayload = {
+  name: string;
+  location?: string;
+};
+
+export type CreateFiscalSequenceInput = {
+  documentType: string;
+  startNumber: number;
+  endNumber: number;
+  nextNumber: number;
+  authorizationNumber?: string;
+  validUntil?: string;
+  issuerDocumentType: 'RNC' | 'CEDULA';
+  issuerDocumentNumber: string;
 };
 
 export type ImportBatch = {
@@ -1024,6 +1090,7 @@ export type PurchaseOrder = {
   supplierId: string;
   orderNumber: string;
   status: PurchaseOrderStatus;
+  destination: 'SALES_INVENTORY' | 'WAREHOUSE';
   displayStatus: PurchaseOrderStatus | 'OVERDUE';
   isOverdue: boolean;
   currency: 'DOP';
@@ -1070,6 +1137,7 @@ export type PurchaseOrder = {
 
 export type PurchaseOrderPayload = {
   supplierId: string;
+  destination: 'SALES_INVENTORY' | 'WAREHOUSE';
   expectedDeliveryDate?: string;
   notes?: string;
   items: Array<{
@@ -1384,7 +1452,7 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
 if (!apiUrl) {
   throw new Error(
-    'NEXT_PUBLIC_API_URL is required to connect the frontend with the CoreStack API.',
+    'NEXT_PUBLIC_API_URL is required to connect the frontend with the application API.',
   );
 }
 
@@ -2201,6 +2269,48 @@ export function getOperationalLogs(tenantId: string, accessToken: string) {
 export function getFiscalSequences(tenantId: string, accessToken: string) {
   return fetchJson<FiscalSequence[]>('/fiscal-sequences', {
     headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getWarehouseStock(tenantId: string, accessToken: string) {
+  return fetchJson<WarehouseStock[]>('/warehouse/stock', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getWarehouseMovements(tenantId: string, accessToken: string) {
+  return fetchJson<WarehouseMovement[]>('/warehouse/movements', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createCashRegister(
+  tenantId: string,
+  accessToken: string,
+  payload: CreateCashRegisterPayload,
+) {
+  return fetchJson<CashRegister>('/cash/registers', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getFiscalSequenceAlerts(tenantId: string, accessToken: string) {
+  return fetchJson<FiscalSequenceAlert[]>('/fiscal-sequences/alerts', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createFiscalSequence(
+  tenantId: string,
+  accessToken: string,
+  input: CreateFiscalSequenceInput,
+) {
+  return fetchJson<FiscalSequence>('/fiscal-sequences', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(input),
   });
 }
 

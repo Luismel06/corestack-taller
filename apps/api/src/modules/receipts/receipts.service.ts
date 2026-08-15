@@ -11,9 +11,11 @@ import {
   InventoryMovementType,
   Prisma,
   ProductUnit,
+  PurchaseOrderDestination,
   PurchaseOrderStatus,
   ReceiptPriceDecision,
   SupplierInvoiceStatus,
+  WarehouseMovementType,
 } from '@qorvex/database';
 import { randomUUID } from 'crypto';
 import { businessDateKey } from '../../common/utils/business-date';
@@ -206,7 +208,6 @@ export class ReceiptsService {
       tenantId,
       receipts.flatMap((receipt) => receipt.items.map((item) => item.supplierInvoiceItemId)),
     );
-
     return receipts.map((receipt) => this.withQuantitySummary(receipt, cumulative));
   }
 
@@ -387,6 +388,8 @@ export class ReceiptsService {
     this.ensureDraft(current, 'confirmar');
     this.ensureInvoiceStatus(current.supplierInvoice.status);
     this.ensureReceiptPurchaseOrderCanReceive(current);
+    const isWarehouseReceipt =
+      current.purchaseOrder?.destination === PurchaseOrderDestination.WAREHOUSE;
 
     if (!current.items.length) {
       throw new BadRequestException('La recepción debe contener al menos un producto.');
@@ -424,7 +427,19 @@ export class ReceiptsService {
         throw new NotFoundException('Uno de los productos de la recepción ya no existe.');
       }
 
-      const previousStock = new Prisma.Decimal(product.stock);
+      const warehouseStock = isWarehouseReceipt
+        ? await tx.warehouseStock.findUnique({
+            where: {
+              tenantId_productId: {
+                tenantId,
+                productId: product.id,
+              },
+            },
+          })
+        : null;
+      const previousStock = new Prisma.Decimal(
+        isWarehouseReceipt ? (warehouseStock?.quantity ?? 0) : product.stock,
+      );
       const newStock = previousStock.add(quantity).toDecimalPlaces(3);
       const currentSalePrice = effectiveSalePrice(product.salePrice, product.price);
       const pricing = this.computePricing({
@@ -436,21 +451,42 @@ export class ReceiptsService {
         requireMatchingSuggestedPrice: true,
       });
 
-      await tx.product.update({
-        where: { id: product.id },
-        data: {
-          stock: newStock.toNumber(),
-          cost: item.supplierInvoiceItem.unitCostNet,
-          costWithTax: item.supplierInvoiceItem.unitCostWithTax,
-          margin: pricing.nextMargin,
-          ...(item.priceDecision === ReceiptPriceDecision.KEEP
-            ? {}
-            : {
-                price: pricing.finalSalePrice,
-                salePrice: pricing.finalSalePrice,
-              }),
-        },
-      });
+      if (isWarehouseReceipt) {
+        await tx.warehouseStock.upsert({
+          where: {
+            tenantId_productId: {
+              tenantId,
+              productId: product.id,
+            },
+          },
+          create: {
+            tenantId,
+            productId: product.id,
+            quantity: newStock.toNumber(),
+            unitCost: item.supplierInvoiceItem.unitCostNet,
+          },
+          update: {
+            quantity: newStock.toNumber(),
+            unitCost: item.supplierInvoiceItem.unitCostNet,
+          },
+        });
+      } else {
+        await tx.product.update({
+          where: { id: product.id },
+          data: {
+            stock: newStock.toNumber(),
+            cost: item.supplierInvoiceItem.unitCostNet,
+            costWithTax: item.supplierInvoiceItem.unitCostWithTax,
+            margin: pricing.nextMargin,
+            ...(item.priceDecision === ReceiptPriceDecision.KEEP
+              ? {}
+              : {
+                  price: pricing.finalSalePrice,
+                  salePrice: pricing.finalSalePrice,
+                }),
+          },
+        });
+      }
 
       await tx.goodsReceiptItem.update({
         where: { id: item.id },
@@ -475,7 +511,10 @@ export class ReceiptsService {
         !decimalEquals(product.cost, item.supplierInvoiceItem.unitCostNet) ||
         !decimalEquals(product.costWithTax, item.supplierInvoiceItem.unitCostWithTax);
       const salePriceChanged = !currentSalePrice.eq(pricing.finalSalePrice);
-      if (costChanged || salePriceChanged || item.priceDecision !== ReceiptPriceDecision.KEEP) {
+      if (
+        !isWarehouseReceipt &&
+        (costChanged || salePriceChanged || item.priceDecision !== ReceiptPriceDecision.KEEP)
+      ) {
         const priceChangeMetadata = {
           reason: 'GOODS_RECEIPT_CONFIRMATION',
           goodsReceiptId: current.id,
@@ -525,22 +564,41 @@ export class ReceiptsService {
         });
       }
 
-      await tx.inventoryMovement.create({
-        data: {
-          tenantId,
-          productId: product.id,
-          type: InventoryMovementType.PURCHASE,
-          quantity: quantity.toNumber(),
-          previousStock: previousStock.toNumber(),
-          newStock: newStock.toNumber(),
-          unitCost: item.supplierInvoiceItem.unitCostNet,
-          reason: 'Recepción de mercancía confirmada',
-          reference: current.receiptNumber,
-          supplierInvoiceId: current.supplierInvoiceId,
-          goodsReceiptId: current.id,
-          createdById: userId,
-        },
-      });
+      if (isWarehouseReceipt) {
+        await tx.warehouseMovement.create({
+          data: {
+            tenantId,
+            productId: product.id,
+            type: WarehouseMovementType.PURCHASE,
+            quantity: quantity.toNumber(),
+            previousQuantity: previousStock.toNumber(),
+            newQuantity: newStock.toNumber(),
+            unitCost: item.supplierInvoiceItem.unitCostNet,
+            reason: 'Recepción de mercancía confirmada para almacén',
+            reference: current.receiptNumber,
+            supplierInvoiceId: current.supplierInvoiceId,
+            goodsReceiptId: current.id,
+            createdById: userId,
+          },
+        });
+      } else {
+        await tx.inventoryMovement.create({
+          data: {
+            tenantId,
+            productId: product.id,
+            type: InventoryMovementType.PURCHASE,
+            quantity: quantity.toNumber(),
+            previousStock: previousStock.toNumber(),
+            newStock: newStock.toNumber(),
+            unitCost: item.supplierInvoiceItem.unitCostNet,
+            reason: 'Recepción de mercancía confirmada',
+            reference: current.receiptNumber,
+            supplierInvoiceId: current.supplierInvoiceId,
+            goodsReceiptId: current.id,
+            createdById: userId,
+          },
+        });
+      }
 
       await tx.supplierProduct.updateMany({
         where: {
@@ -653,6 +711,8 @@ export class ReceiptsService {
       if (current.status !== GoodsReceiptStatus.CONFIRMED || !current.confirmedAt) {
         throw new ConflictException('Solo una recepción confirmada puede revertirse.');
       }
+      const isWarehouseReceipt =
+        current.purchaseOrder?.destination === PurchaseOrderDestination.WAREHOUSE;
 
       for (const item of [...current.items].reverse()) {
         const quantity = this.normalizeQuantity(item.quantityReceived);
@@ -663,60 +723,110 @@ export class ReceiptsService {
           throw new NotFoundException('Uno de los productos de la recepción ya no existe.');
         }
 
-        const previousStock = new Prisma.Decimal(product.stock).toDecimalPlaces(3);
+        const warehouseStock = isWarehouseReceipt
+          ? await tx.warehouseStock.findUnique({
+              where: {
+                tenantId_productId: {
+                  tenantId,
+                  productId: product.id,
+                },
+              },
+            })
+          : null;
+        const previousStock = new Prisma.Decimal(
+          isWarehouseReceipt ? (warehouseStock?.quantity ?? 0) : product.stock,
+        ).toDecimalPlaces(3);
         if (previousStock.lt(quantity)) {
           throw new ConflictException(
-            `No hay inventario suficiente de ${product.name} para revertir la recepción.`,
+            `No hay existencias suficientes de ${product.name} para revertir la recepción.`,
           );
         }
         const newStock = previousStock.sub(quantity).toDecimalPlaces(3);
-        const hasLaterReceipt = await tx.goodsReceiptItem.findFirst({
-          where: {
-            tenantId,
-            productId: product.id,
-            goodsReceiptId: { not: current.id },
-            goodsReceipt: {
-              status: GoodsReceiptStatus.CONFIRMED,
-              confirmedAt: { gt: current.confirmedAt },
-            },
-          },
-          select: { id: true },
-        });
+        const hasLaterReceipt = isWarehouseReceipt
+          ? await tx.warehouseMovement.findFirst({
+              where: {
+                tenantId,
+                productId: product.id,
+                goodsReceiptId: { not: current.id },
+                createdAt: { gt: current.confirmedAt },
+              },
+              select: { id: true },
+            })
+          : await tx.goodsReceiptItem.findFirst({
+              where: {
+                tenantId,
+                productId: product.id,
+                goodsReceiptId: { not: current.id },
+                goodsReceipt: {
+                  status: GoodsReceiptStatus.CONFIRMED,
+                  confirmedAt: { gt: current.confirmedAt },
+                },
+              },
+              select: { id: true },
+            });
         if (hasLaterReceipt) {
           throw new ConflictException(
-            `No se puede revertir la recepción porque ${product.name} tiene una recepción confirmada posterior.`,
+            `No se puede revertir la recepción porque ${product.name} tiene un movimiento posterior.`,
           );
         }
 
         const restoredSalePrice = item.previousSalePrice;
-        await tx.product.update({
-          where: { id: product.id },
-          data: {
-            stock: newStock.toNumber(),
-            cost: item.previousCostNet,
-            costWithTax: item.previousCostWithTax,
-            price: restoredSalePrice,
-            salePrice: restoredSalePrice,
-            margin: calculateMargin(restoredSalePrice, item.previousCostNet),
-          },
-        });
+        if (isWarehouseReceipt) {
+          await tx.warehouseStock.update({
+            where: {
+              tenantId_productId: {
+                tenantId,
+                productId: product.id,
+              },
+            },
+            data: { quantity: newStock.toNumber() },
+          });
+          await tx.warehouseMovement.create({
+            data: {
+              tenantId,
+              productId: product.id,
+              type: WarehouseMovementType.ADJUSTMENT_OUT,
+              quantity: quantity.toNumber(),
+              previousQuantity: previousStock.toNumber(),
+              newQuantity: newStock.toNumber(),
+              unitCost: warehouseStock?.unitCost,
+              reason: `Reversión de recepción: ${normalizedReason}`,
+              reference: current.receiptNumber,
+              supplierInvoiceId: current.supplierInvoiceId,
+              goodsReceiptId: current.id,
+              createdById: userId,
+            },
+          });
+        } else {
+          await tx.product.update({
+            where: { id: product.id },
+            data: {
+              stock: newStock.toNumber(),
+              cost: item.previousCostNet,
+              costWithTax: item.previousCostWithTax,
+              price: restoredSalePrice,
+              salePrice: restoredSalePrice,
+              margin: calculateMargin(restoredSalePrice, item.previousCostNet),
+            },
+          });
 
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            productId: product.id,
-            type: InventoryMovementType.ADJUSTMENT_OUT,
-            quantity: quantity.toNumber(),
-            previousStock: previousStock.toNumber(),
-            newStock: newStock.toNumber(),
-            unitCost: product.cost,
-            reason: `Reversión de recepción: ${normalizedReason}`,
-            reference: current.receiptNumber,
-            supplierInvoiceId: current.supplierInvoiceId,
-            goodsReceiptId: current.id,
-            createdById: userId,
-          },
-        });
+          await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              productId: product.id,
+              type: InventoryMovementType.ADJUSTMENT_OUT,
+              quantity: quantity.toNumber(),
+              previousStock: previousStock.toNumber(),
+              newStock: newStock.toNumber(),
+              unitCost: product.cost,
+              reason: `Reversión de recepción: ${normalizedReason}`,
+              reference: current.receiptNumber,
+              supplierInvoiceId: current.supplierInvoiceId,
+              goodsReceiptId: current.id,
+              createdById: userId,
+            },
+          });
+        }
 
         if (item.purchaseOrderItemId) {
           const purchaseOrderItem = await tx.purchaseOrderItem.findFirst({

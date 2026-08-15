@@ -184,6 +184,8 @@ export class OrdersService {
     const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
     const discountRate = this.getDiscountRate(priceLevel);
     const paymentMode = dto.paymentMode ?? SalePaymentMode.CASH;
+    const electronicInvoiceRequested =
+      destination === SalesOrderDestination.CASH_SALE && dto.electronicInvoiceRequested === true;
 
     if (destination === SalesOrderDestination.QUOTATION) {
       this.validateQuotationDetails(dto);
@@ -192,6 +194,21 @@ export class OrdersService {
     this.validatePaymentModeFields(paymentMode, dto);
 
     return this.prisma.$transaction(async (tx) => {
+      const ecfRecipientEmail = electronicInvoiceRequested
+        ? (
+            await tx.tenant.findUniqueOrThrow({
+              where: { id: tenantId },
+              select: { email: true },
+            })
+          ).email?.trim() || null
+        : null;
+
+      if (electronicInvoiceRequested && !ecfRecipientEmail) {
+        throw new BadRequestException(
+          'Configura el correo de la empresa antes de solicitar una factura electrónica.',
+        );
+      }
+
       const customer = dto.customerId
         ? await tx.customer.findFirst({
             where: {
@@ -245,6 +262,8 @@ export class OrdersService {
             isQuotation && dto.quotationDocumentNumber?.trim()
               ? normalizeDominicanDocument(dto.quotationDocumentNumber)
               : undefined,
+          electronicInvoiceRequested,
+          ecfRecipientEmail,
           orderNumber: this.generateOrderNumber(isQuotation),
           status: isQuotation
             ? SalesOrderStatus.QUOTATION

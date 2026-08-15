@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { acceptSalesOrder, cancelSalesOrder, getSalesOrders, type SalesOrder } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { getOrderClientLabel, getOrderSearchLabel } from '@/lib/order-client';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
@@ -142,7 +143,7 @@ export function QuotationsView() {
     <div className="space-y-6">
       <ModuleHeader
         title="Cotizaciones"
-        description="Gestion centralizada de cotizaciones RIVNU: pendientes, aceptadas y canceladas."
+        description={`Gestión centralizada de cotizaciones ${brand.name}: pendientes, aceptadas y canceladas.`}
       />
 
       <Card>
@@ -293,7 +294,7 @@ function QuotationCard({
       <div className="mt-4 border-t border-zinc-100 pt-3">
         <div className="mb-3 flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">{order.items.length} producto(s)</span>
-          <strong className="text-lg font-extrabold text-[#f36c10]">
+          <strong className="text-lg font-extrabold text-primary">
             {formatCurrency(Number(order.total))}
           </strong>
         </div>
@@ -303,7 +304,7 @@ function QuotationCard({
             <>
               <Button
                 type="button"
-                className="bg-[#f36c10] text-white hover:bg-[#d85f0e]"
+                className="text-primary-foreground"
                 size="sm"
                 onClick={onAccept}
                 disabled={isAccepting}

@@ -165,6 +165,8 @@ enum InvoiceFiscalStatus {
 }
 
 enum InvoiceDocumentType {
+  FISCAL_CREDIT_01
+  CONSUMER_02
   CONSUMER_ELECTRONIC_32
   FISCAL_CREDIT_ELECTRONIC_31
   DEBIT_NOTE_ELECTRONIC_33
@@ -312,6 +314,17 @@ enum PurchaseOrderStatus {
   CANCELLED
 }
 
+enum PurchaseOrderDestination {
+  SALES_INVENTORY
+  WAREHOUSE
+}
+
+enum WarehouseMovementType {
+  PURCHASE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+}
+
 enum SupplierInvoiceStatus {
   DRAFT
   PENDING
@@ -409,6 +422,8 @@ model Tenant {
   categories                 ProductCategory[]
   products                   Product[]
   inventoryMovements         InventoryMovement[]
+  warehouseStocks            WarehouseStock[]
+  warehouseMovements         WarehouseMovement[]
   invoices                   Invoice[]
   payments                   Payment[]
   electronicDocuments        ElectronicDocument[]
@@ -467,6 +482,7 @@ model User {
   employeeProfiles                    EmployeeProfile[]
   invoicesIssued                      Invoice[]                   @relation("InvoiceIssuedBy")
   inventoryMovementsCreated           InventoryMovement[]         @relation("InventoryMovementCreatedBy")
+  warehouseMovementsCreated           WarehouseMovement[]         @relation("WarehouseMovementCreatedBy")
   payments                            Payment[]
   salesOrdersCreated                  SalesOrder[]                @relation("SalesOrderCreatedBy")
   salesOrdersCompleted                SalesOrder[]                @relation("SalesOrderCompletedBy")
@@ -628,6 +644,8 @@ model Product {
   tenant                 Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   category               ProductCategory?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   inventoryMovements     InventoryMovement[]
+  warehouseStocks        WarehouseStock[]
+  warehouseMovements     WarehouseMovement[]
   invoiceItems           InvoiceItem[]
   salesOrderItems        SalesOrderItem[]
   returnRequestItems     ReturnRequestItem[]
@@ -679,11 +697,55 @@ model InventoryMovement {
   @@index([createdById])
 }
 
+model WarehouseStock {
+  id        String   @id @default(cuid())
+  tenantId  String
+  productId String
+  quantity  Float    @default(0)
+  unitCost  Decimal? @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, productId])
+  @@index([tenantId])
+  @@index([productId])
+  @@index([tenantId, quantity])
+}
+
+model WarehouseMovement {
+  id                String                @id @default(cuid())
+  tenantId          String
+  productId         String
+  type              WarehouseMovementType
+  quantity          Float
+  previousQuantity  Float?
+  newQuantity       Float?
+  unitCost          Decimal?              @db.Decimal(12, 2)
+  reason            String?
+  reference         String?
+  supplierInvoiceId String?
+  goodsReceiptId    String?
+  createdById       String?
+  createdAt         DateTime              @default(now())
+  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product           Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy         User?                 @relation("WarehouseMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, type])
+  @@index([tenantId, createdAt])
+  @@index([productId])
+  @@index([goodsReceiptId])
+  @@index([createdById])
+}
+
 model Invoice {
   id                   String                @id @default(cuid())
   tenantId             String
   customerId           String?
-  documentType         InvoiceDocumentType   @default(CONSUMER_ELECTRONIC_32)
+  documentType         InvoiceDocumentType   @default(CONSUMER_02)
   invoiceNumber        String
   ncf                  String?
   eNcf                 String?
@@ -755,9 +817,11 @@ model SalesOrder {
   customerId              String?
   destination             SalesOrderDestination @default(CASH_SALE)
   clientName              String?
-  quotationDocumentType   DocumentType?
-  quotationDocumentNumber String?
-  orderNumber             String
+    quotationDocumentType   DocumentType?
+    quotationDocumentNumber String?
+    electronicInvoiceRequested Boolean             @default(false)
+    ecfRecipientEmail        String?
+    orderNumber             String
   status                  SalesOrderStatus      @default(SENT_TO_CASHIER)
   priceLevel              SalesOrderPriceLevel  @default(REGULAR)
   discountRate            Decimal               @default(0) @db.Decimal(5, 4)
@@ -910,6 +974,7 @@ model PurchaseOrder {
   supplierId                     String
   orderNumber                    String
   status                         PurchaseOrderStatus  @default(DRAFT)
+  destination                    PurchaseOrderDestination @default(SALES_INVENTORY)
   currency                       Currency             @default(DOP)
   requestDate                    DateTime?
   expectedDeliveryDate           DateTime?
@@ -1582,6 +1647,9 @@ model FiscalSequence {
   startNumber  Int
   endNumber    Int
   nextNumber   Int
+  authorizationNumber String?
+  issuerDocumentType DocumentType?
+  issuerDocumentNumber String?
   validUntil   DateTime?
   status       FiscalSequenceStatus @default(ACTIVE)
   createdAt    DateTime             @default(now())

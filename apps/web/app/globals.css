@@ -3,22 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --background: 220 20% 96%;
-  --foreground: 222 30% 14%;
+  --background: 0 0% 96%;
+  --foreground: 0 0% 7%;
   --card: 0 0% 100%;
-  --card-foreground: 222 30% 14%;
-  --muted: 210 20% 92%;
-  --muted-foreground: 217 12% 42%;
-  --primary: 219 54% 18%;
-  --primary-foreground: 210 40% 98%;
-  --accent: 190 93% 35%;
-  --accent-foreground: 210 40% 98%;
-  --border: 214 18% 84%;
-  --input: 214 18% 84%;
-  --ring: 190 93% 35%;
-  --success: 151 55% 34%;
-  --warning: 36 92% 44%;
-  --danger: 0 70% 45%;
+  --card-foreground: 0 0% 7%;
+  --muted: 0 0% 92%;
+  --muted-foreground: 0 0% 38%;
+  --primary: 0 0% 7%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 0 0% 16%;
+  --accent-foreground: 0 0% 100%;
+  --border: 0 0% 82%;
+  --input: 0 0% 82%;
+  --ring: 0 0% 7%;
+  --success: 0 0% 22%;
+  --warning: 0 0% 38%;
+  --danger: 0 0% 14%;
 }
 
 * {
@@ -44,7 +44,7 @@
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #f36c10;
+  background-color: #111111;
 }
 
 *::-webkit-scrollbar-corner {
@@ -63,7 +63,64 @@ a {
   text-decoration: none;
 }
 
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @layer utilities {
+  .animate-page-enter {
+    animation: page-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-enter {
+    animation: enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-enter-delay-1 {
+    animation-delay: 80ms;
+  }
+
+  .animate-enter-delay-2 {
+    animation-delay: 160ms;
+  }
+
+  .animate-enter-delay-3 {
+    animation-delay: 240ms;
+  }
+
+  .animate-enter-delay-4 {
+    animation-delay: 320ms;
+  }
+
   .sidebar-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgb(71 85 105 / 0.75) transparent;
@@ -84,7 +141,7 @@ a {
   }
 
   .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: #f36c10;
+    background-color: #111111;
   }
 
   .surface-scrollbar {
@@ -109,6 +166,6 @@ a {
   }
 
   .surface-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: #f36c10;
+    background-color: #111111;
   }
 }

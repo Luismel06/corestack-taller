@@ -36,7 +36,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { getBarcodeLookupCandidates } from '../../common/utils/barcode';
 import { businessDateKey } from '../../common/utils/business-date';
+import {
+  normalizeDominicanDocument,
+  validateDominicanDocument,
+} from '../../common/utils/dominican-documents';
 import { CompleteSaleDto, PosSaleItemDto } from './dto/complete-sale.dto';
+import { buildEcfSimulation } from './ecf-simulation';
+import { ResendService } from '../notifications/resend.service';
 
 const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
 const claimTtlMs = 30 * 60 * 1000;
@@ -59,7 +65,10 @@ type ComputedSaleLine = {
 
 @Injectable()
 export class PosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly resend: ResendService,
+  ) {}
 
   async searchProducts(tenantId: string, user: AuthenticatedUser, q: string) {
     await this.ensureCanCreateDirectSale(tenantId, user);
@@ -117,7 +126,7 @@ export class PosService {
     const computed = await this.computeSale(tenantId, dto.items ?? []);
 
     return {
-      documentType: dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
+      documentType: dto.documentType ?? InvoiceDocumentType.CONSUMER_02,
       paymentMethod: dto.paymentMethod,
       subtotal: computed.subtotal.toNumber(),
       discountTotal: computed.discountTotal.toNumber(),
@@ -152,7 +161,7 @@ export class PosService {
     }
     this.ensureSupportedPaymentMethod(dto.paymentMethod);
 
-    return this.runSerializable(async (tx) => {
+    const completedSale = await this.runSerializable(async (tx) => {
       const cashSession = await this.findCashSessionForSale(
         tx,
         tenantId,
@@ -174,16 +183,25 @@ export class PosService {
         throw new BadRequestException('Sales order totals are inconsistent and must be reviewed.');
       }
 
-      const documentType = dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32;
+      const documentType = order?.electronicInvoiceRequested
+        ? dto.documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31
+          ? InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31
+          : InvoiceDocumentType.CONSUMER_ELECTRONIC_32
+        : dto.documentType === InvoiceDocumentType.FISCAL_CREDIT_01
+          ? InvoiceDocumentType.FISCAL_CREDIT_01
+          : InvoiceDocumentType.CONSUMER_02;
+      const requiresFiscalCustomer =
+        documentType === InvoiceDocumentType.FISCAL_CREDIT_01 ||
+        documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31;
+      const requiresRnc = documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31;
+      const requiresE32Recipient =
+        documentType === InvoiceDocumentType.CONSUMER_ELECTRONIC_32 &&
+        computed.total.gte(new Prisma.Decimal(250000));
       if (order?.customerId && dto.customerId && dto.customerId !== order.customerId) {
         throw new BadRequestException('Order customer cannot be changed at checkout.');
       }
-      const customerId = order?.customerId ?? dto.customerId ?? undefined;
-      const isCreditSale = order?.paymentMode === SalePaymentMode.CREDIT;
-      if (isCreditSale && customerId) {
-        await this.lockCustomer(tx, tenantId, customerId);
-      }
-      const customer = customerId
+      let customerId = order?.customerId ?? dto.customerId ?? undefined;
+      let customer = customerId
         ? await tx.customer.findFirst({
             where: {
               id: customerId,
@@ -194,6 +212,67 @@ export class PosService {
 
       if (customerId && !customer) {
         throw new NotFoundException('Customer not found for tenant.');
+      }
+
+      if (requiresFiscalCustomer || requiresE32Recipient) {
+        if (requiresRnc && dto.fiscalDocumentType !== DocumentType.RNC) {
+          throw new BadRequestException('La factura E31 requiere el RNC del cliente.');
+        }
+        if (
+          (dto.fiscalDocumentType !== DocumentType.RNC &&
+            dto.fiscalDocumentType !== DocumentType.CEDULA) ||
+          !dto.fiscalDocumentNumber?.trim()
+        ) {
+          throw new BadRequestException(
+            requiresRnc
+              ? 'La factura E31 requiere el RNC del cliente.'
+              : requiresE32Recipient
+                ? 'La factura E32 de RD$250,000 o más requiere el RNC o la cédula y nombre del comprador.'
+                : 'La factura B01 requiere el RNC o la cédula del cliente.',
+          );
+        }
+
+        if (!validateDominicanDocument(dto.fiscalDocumentType, dto.fiscalDocumentNumber)) {
+          throw new BadRequestException(
+            dto.fiscalDocumentType === DocumentType.RNC
+              ? 'El RNC del cliente no es válido.'
+              : 'La cédula del cliente no es válida.',
+          );
+        }
+
+        const fiscalDocumentNumber = normalizeDominicanDocument(dto.fiscalDocumentNumber);
+        const fiscalCustomer = await tx.customer.findFirst({
+          where: {
+            tenantId,
+            documentType: dto.fiscalDocumentType,
+            documentNumber: fiscalDocumentNumber,
+            status: CustomerStatus.ACTIVE,
+          },
+        });
+
+        if (!fiscalCustomer) {
+          throw new BadRequestException(
+            requiresRnc
+              ? 'No existe un cliente activo con ese RNC. Regístralo antes de emitir la E31.'
+              : requiresE32Recipient
+                ? 'No existe un cliente activo con ese RNC o cédula. Regístralo antes de emitir la E32.'
+                : 'No existe un cliente activo con ese RNC o cédula. Regístralo antes de emitir la B01.',
+          );
+        }
+
+        if (customerId && customerId !== fiscalCustomer.id) {
+          throw new BadRequestException(
+            'El documento fiscal debe corresponder al cliente asignado a la orden.',
+          );
+        }
+
+        customerId = fiscalCustomer.id;
+        customer = fiscalCustomer;
+      }
+
+      const isCreditSale = order?.paymentMode === SalePaymentMode.CREDIT;
+      if (isCreditSale && customerId) {
+        await this.lockCustomer(tx, tenantId, customerId);
       }
 
       if (isCreditSale) {
@@ -270,15 +349,6 @@ export class PosService {
         }
       }
 
-      if (
-        documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31 &&
-        (!customer ||
-          customer.documentType !== DocumentType.RNC ||
-          !customer.documentNumber?.trim())
-      ) {
-        throw new BadRequestException('Fiscal credit invoices require an RNC customer.');
-      }
-
       await this.lockOpenCashSessionForUser(tx, tenantId, user.id, cashSession.id);
       const sequence = await this.reserveFiscalSequence(tx, tenantId, documentType);
       const requiredPayment = isCreditSale ? order.initialPaymentAmount : computed.total;
@@ -293,8 +363,14 @@ export class PosService {
       const status = this.getInvoiceStatus(paidAmount, computed.total);
       const issuedAt = new Date();
       const fiscalNumber = this.formatFiscalNumber(sequence.prefix, sequence.number);
-      const invoiceNumber = `RIV-${fiscalNumber}`;
-      const eNcf = fiscalNumber;
+      const isElectronicDocument =
+        documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31 ||
+        documentType === InvoiceDocumentType.CONSUMER_ELECTRONIC_32;
+      const invoiceNumber = `ALL-${fiscalNumber}`;
+      const eNcf = isElectronicDocument ? fiscalNumber : null;
+      const tenant = isElectronicDocument
+        ? await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } })
+        : null;
 
       const invoice = await tx.invoice.create({
         data: {
@@ -302,10 +378,12 @@ export class PosService {
           customerId: customer?.id,
           documentType,
           invoiceNumber,
-          ncf: fiscalNumber,
+          ncf: isElectronicDocument ? null : fiscalNumber,
           eNcf,
           status,
-          fiscalStatus: InvoiceFiscalStatus.SIGNED,
+          fiscalStatus: isElectronicDocument
+            ? InvoiceFiscalStatus.PENDING_SIGNATURE
+            : InvoiceFiscalStatus.SIGNED,
           subtotal: computed.subtotal,
           taxTotal: computed.taxTotal,
           discountTotal: computed.discountTotal,
@@ -486,26 +564,75 @@ export class PosService {
         });
       }
 
-      await tx.electronicDocument.create({
-        data: {
-          tenantId,
-          invoiceId: invoice.id,
-          provider: ElectronicDocumentProvider.DGII_DIRECT,
-          status: ElectronicDocumentStatus.SIGNED,
-          trackId: `DEMO-${invoice.invoiceNumber}`,
-          requestPayload: {
-            mode: 'demo',
-            documentType,
-            eNcf,
-          },
-          responsePayload: {
-            mode: 'demo',
-            status: 'SIGNED',
-          },
-        },
+      const eCfSimulation =
+        isElectronicDocument && tenant && eNcf
+          ? buildEcfSimulation({
+              documentType: documentType as
+                | 'FISCAL_CREDIT_ELECTRONIC_31'
+                | 'CONSUMER_ELECTRONIC_32',
+              eNcf,
+              invoiceNumber: invoice.invoiceNumber,
+              issuedAt,
+              tenant,
+              customer: customer
+                ? {
+                    name: customer.name,
+                    documentNumber: customer.documentNumber,
+                    email: customer.email,
+                  }
+                : null,
+              recipientEmail:
+                process.env.RESEND_ECF_RECIPIENT ?? order?.ecfRecipientEmail ?? tenant.email,
+              cashRegisterName: cashSession.cashRegister.name,
+              paymentMethod: dto.paymentMethod,
+              paymentMode: isCreditSale ? 'CREDIT' : 'CASH',
+              subtotal: computed.subtotal,
+              taxTotal: computed.taxTotal,
+              total: computed.total,
+              items: computed.items.map((item) => ({
+                ...item,
+                isService: item.product.unit === ProductUnit.SERVICE,
+                taxCategory: item.product.taxCategory,
+              })),
+            })
+          : null;
+
+      const electronicDocument = await tx.electronicDocument.create({
+        data: eCfSimulation
+          ? {
+              tenantId,
+              invoiceId: invoice.id,
+              provider: ElectronicDocumentProvider.MOCK,
+              status: ElectronicDocumentStatus.PENDING,
+              trackId: `ECF-SIM-${invoice.invoiceNumber}`,
+              requestPayload: {
+                mode: 'ecf-simulation',
+                documentType,
+                eNcf,
+                xml: eCfSimulation.xml,
+                emailDelivery: {
+                  provider: 'RESEND',
+                  status: eCfSimulation.status,
+                  recipient: eCfSimulation.recipientEmail,
+                  message: eCfSimulation.email,
+                },
+              },
+              responsePayload: {
+                status: 'PENDING_SIGNATURE_AND_RESEND_CONFIGURATION',
+              },
+            }
+          : {
+              tenantId,
+              invoiceId: invoice.id,
+              provider: ElectronicDocumentProvider.DGII_DIRECT,
+              status: ElectronicDocumentStatus.SIGNED,
+              trackId: `DEMO-${invoice.invoiceNumber}`,
+              requestPayload: { mode: 'demo', documentType },
+              responsePayload: { mode: 'demo', status: 'SIGNED' },
+            },
       });
 
-      return tx.invoice.findUniqueOrThrow({
+      const issuedInvoice = await tx.invoice.findUniqueOrThrow({
         where: { id: invoice.id },
         include: {
           customer: true,
@@ -526,7 +653,27 @@ export class PosService {
           },
         },
       });
+
+      return {
+        invoice: issuedInvoice,
+        ecfCopy:
+          eCfSimulation && eCfSimulation.recipientEmail
+            ? {
+                electronicDocumentId: electronicDocument.id,
+                invoiceId: invoice.id,
+                recipient: eCfSimulation.recipientEmail,
+                subject: eCfSimulation.email.subject,
+                templateVariables: eCfSimulation.templateVariables,
+              }
+            : null,
+      };
     });
+
+    if (completedSale.ecfCopy) {
+      await this.resend.sendEcfCopy(completedSale.ecfCopy);
+    }
+
+    return completedSale.invoice;
   }
 
   private async claimOrderForSale(
@@ -858,21 +1005,58 @@ export class PosService {
     documentType: InvoiceDocumentType,
   ) {
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      const now = new Date();
+      await tx.fiscalSequence.updateMany({
+        where: {
+          tenantId,
+          documentType,
+          status: FiscalSequenceStatus.ACTIVE,
+          validUntil: { lt: now },
+        },
+        data: { status: FiscalSequenceStatus.EXPIRED },
+      });
       const sequence = await tx.fiscalSequence.findFirst({
         where: {
           tenantId,
           documentType,
           status: FiscalSequenceStatus.ACTIVE,
+          OR: [{ validUntil: null }, { validUntil: { gte: now } }],
         },
         orderBy: {
           createdAt: 'asc',
         },
       });
 
-      if (!sequence || sequence.nextNumber > sequence.endNumber) {
+      if (!sequence) {
+        const nextBlock = await tx.fiscalSequence.findFirst({
+          where: {
+            tenantId,
+            documentType,
+            status: FiscalSequenceStatus.INACTIVE,
+            OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        if (nextBlock) {
+          const activated = await tx.fiscalSequence.updateMany({
+            where: { id: nextBlock.id, status: FiscalSequenceStatus.INACTIVE },
+            data: { status: FiscalSequenceStatus.ACTIVE },
+          });
+          if (activated.count === 1) continue;
+        }
+
         throw new BadRequestException(
           'No active fiscal sequence available for this document type.',
         );
+      }
+
+      if (sequence.nextNumber > sequence.endNumber) {
+        await tx.fiscalSequence.updateMany({
+          where: { id: sequence.id, status: FiscalSequenceStatus.ACTIVE },
+          data: { status: FiscalSequenceStatus.EXHAUSTED },
+        });
+        continue;
       }
 
       const reserved = await tx.fiscalSequence.updateMany({
@@ -892,6 +1076,10 @@ export class PosService {
       });
 
       if (reserved.count === 1) {
+        if (sequence.nextNumber >= sequence.endNumber) {
+          await this.activateNextFiscalBlock(tx, tenantId, documentType);
+        }
+
         return {
           prefix: sequence.prefix,
           number: sequence.nextNumber,
@@ -902,8 +1090,32 @@ export class PosService {
     throw new BadRequestException('Could not reserve fiscal sequence.');
   }
 
+  private async activateNextFiscalBlock(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    documentType: InvoiceDocumentType,
+  ) {
+    const now = new Date();
+    const nextBlock = await tx.fiscalSequence.findFirst({
+      where: {
+        tenantId,
+        documentType,
+        status: FiscalSequenceStatus.INACTIVE,
+        OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (nextBlock) {
+      await tx.fiscalSequence.updateMany({
+        where: { id: nextBlock.id, status: FiscalSequenceStatus.INACTIVE },
+        data: { status: FiscalSequenceStatus.ACTIVE },
+      });
+    }
+  }
+
   private formatFiscalNumber(prefix: string, number: number) {
-    const width = prefix === 'BA' ? 4 : 10;
+    const width = prefix === 'BA' ? 4 : prefix === 'B01' || prefix === 'B02' ? 8 : 10;
     return `${prefix}${String(number).padStart(width, '0')}`;
   }
 
@@ -922,6 +1134,9 @@ export class PosService {
       },
       orderBy: {
         openedAt: 'desc',
+      },
+      include: {
+        cashRegister: true,
       },
     });
 

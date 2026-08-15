@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getEmployees } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { getStatusVariant, translateRole, translateStatus } from '@/lib/display-labels';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -35,7 +36,7 @@ export function EmployeesView() {
     <div className="space-y-6">
       <ModuleHeader
         title="Empleados"
-        description="Usuarios operativos de Ferreteria RIVNU con roles y permisos por tenant."
+        description={`Usuarios operativos de ${brand.name} con roles y permisos por empresa.`}
       />
 
       <div className="flex justify-end">
@@ -49,7 +50,7 @@ export function EmployeesView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Equipo RIVNU</CardTitle>
+          <CardTitle>Equipo {brand.name}</CardTitle>
           <CardDescription>{employeesQuery.data?.length ?? 0} perfiles laborales registrados.</CardDescription>
         </CardHeader>
         <CardContent>

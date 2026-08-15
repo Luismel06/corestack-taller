@@ -25,6 +25,7 @@ import {
   type Customer,
   updateCustomer,
 } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { getStatusVariant, translateDocumentType, translateStatus } from '@/lib/display-labels';
 import {
   normalizeDominicanDocument,
@@ -247,7 +248,7 @@ export function CustomersView() {
     <div className="space-y-6">
       <ModuleHeader
         title="Clientes"
-        description="Clientes fiscales y comerciales de Ferreteria RIVNU cargados desde PostgreSQL."
+        description={`Clientes fiscales y comerciales de ${brand.name} cargados desde PostgreSQL.`}
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

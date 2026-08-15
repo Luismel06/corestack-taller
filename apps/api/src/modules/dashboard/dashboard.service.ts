@@ -7,6 +7,7 @@ import {
   EmployeeStatus,
   FiscalSequenceStatus,
   GoodsReceiptStatus,
+  InvoiceDocumentType,
   InvoiceStatus,
   PaymentMethod,
   ProductStatus,
@@ -311,9 +312,21 @@ export class DashboardService {
       this.prisma.fiscalSequence.findMany({
         where: {
           tenantId,
-          status: FiscalSequenceStatus.ACTIVE,
+          documentType: {
+            in: [
+              InvoiceDocumentType.FISCAL_CREDIT_01,
+              InvoiceDocumentType.CONSUMER_02,
+            ],
+          },
+          status: {
+            in: [
+              FiscalSequenceStatus.ACTIVE,
+              FiscalSequenceStatus.EXHAUSTED,
+              FiscalSequenceStatus.EXPIRED,
+            ],
+          },
         },
-        orderBy: { documentType: 'asc' },
+        orderBy: [{ documentType: 'asc' }, { createdAt: 'desc' }],
       }),
       this.prisma.product.findMany({
         where: {
@@ -605,16 +618,44 @@ export class DashboardService {
         createdAt: log.createdAt,
       })),
       fiscalSequenceAlerts: fiscalSequences
-        .map((sequence) => ({
-          id: sequence.id,
-          documentType: sequence.documentType,
-          prefix: sequence.prefix,
-          nextNumber: sequence.nextNumber,
-          endNumber: sequence.endNumber,
-          remaining: sequence.endNumber - sequence.nextNumber + 1,
-          validUntil: sequence.validUntil,
-        }))
-        .filter((sequence) => sequence.remaining <= 25),
+        .filter((sequence, index, allSequences) =>
+          sequence.status === FiscalSequenceStatus.ACTIVE ||
+          !allSequences.some(
+            (candidate) =>
+              candidate.documentType === sequence.documentType &&
+              candidate.status === FiscalSequenceStatus.ACTIVE,
+          ) &&
+            allSequences.findIndex(
+              (candidate) => candidate.documentType === sequence.documentType,
+            ) === index,
+        )
+        .map((sequence) => {
+          const total = sequence.endNumber - sequence.startNumber + 1;
+          const remaining = Math.max(sequence.endNumber - sequence.nextNumber + 1, 0);
+          const threshold = Math.max(25, Math.ceil(total * 0.1));
+          const expired =
+            sequence.status === FiscalSequenceStatus.EXPIRED ||
+            (sequence.validUntil !== null && sequence.validUntil < now);
+          const exhausted = sequence.status === FiscalSequenceStatus.EXHAUSTED || remaining === 0;
+
+          return {
+            id: sequence.id,
+            documentType: sequence.documentType,
+            prefix: sequence.prefix,
+            nextNumber: sequence.nextNumber,
+            endNumber: sequence.endNumber,
+            remaining,
+            threshold,
+            validUntil: sequence.validUntil,
+            status: sequence.status,
+            severity: expired || exhausted || remaining <= Math.max(5, Math.ceil(total * 0.02))
+              ? 'critical'
+              : 'warning',
+            expired,
+            exhausted,
+          };
+        })
+        .filter((sequence) => sequence.expired || sequence.exhausted || sequence.remaining <= sequence.threshold),
       employeeSummary: {
         activeEmployees,
         openCashSessions,

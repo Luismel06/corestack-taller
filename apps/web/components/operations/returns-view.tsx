@@ -383,7 +383,7 @@ export function ReturnsView() {
                           <label className="flex min-w-0 items-start gap-3">
                             <input
                               type="checkbox"
-                              className="mt-1 h-4 w-4 accent-[#f36c10]"
+                              className="mt-1 h-4 w-4 accent-primary"
                               checked={selection.selected}
                               disabled={!item.canReturn}
                               onChange={(event) =>
@@ -418,7 +418,7 @@ export function ReturnsView() {
                             <label className="flex h-10 items-center gap-2 rounded-md border border-border bg-zinc-50 px-3 text-sm">
                               <input
                                 type="checkbox"
-                                className="h-4 w-4 accent-[#f36c10]"
+                                className="h-4 w-4 accent-primary"
                                 checked={selection.restock}
                                 disabled={!selection.selected || !item.productId}
                                 onChange={(event) =>
@@ -435,14 +435,14 @@ export function ReturnsView() {
                 </div>
               </div>
 
-              <div className="space-y-4 rounded-md border border-[#f36c10]/35 bg-[#f36c10]/5 p-4">
+              <div className="space-y-4 rounded-md border border-primary/35 bg-primary/5 p-4">
                 <div>
                   <Label htmlFor="returnReason">Motivo de devolucion</Label>
                   <textarea
                     id="returnReason"
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
-                    className="mt-2 min-h-28 w-full rounded-md border border-input bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#f36c10]"
+                    className="mt-2 min-h-28 w-full rounded-md border border-input bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     maxLength={500}
                     placeholder="Ejemplo: producto equivocado, cliente cambio la medida o material defectuoso."
                   />
@@ -474,7 +474,7 @@ export function ReturnsView() {
 
                 <Button
                   type="button"
-                  className="h-12 w-full bg-[#f36c10] text-base text-white hover:bg-[#d95f0e]"
+                  className="h-12 w-full text-base"
                   onClick={() => createMutation.mutate()}
                   disabled={createMutation.isPending || !selectedItems.length}
                 >
@@ -593,7 +593,7 @@ function ReturnRequestCard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <ReceiptText className="h-4 w-4 text-[#f36c10]" />
+            <ReceiptText className="h-4 w-4 text-primary" />
             <p className="text-sm font-semibold">{request.invoice.invoiceNumber}</p>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -688,10 +688,10 @@ function DecisionModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/65 px-4 backdrop-blur-sm">
       <div className="w-full max-w-xl overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-2xl">
-        <div className="border-b border-[#f36c10]/20 bg-[#f36c10]/10 px-5 py-4">
+        <div className="border-b border-primary/20 bg-primary/10 px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-3">
-              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#f36c10] text-white">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
                 {approving ? <Check className="h-5 w-5" /> : <Ban className="h-5 w-5" />}
               </div>
               <div>
@@ -772,7 +772,7 @@ function DecisionModal({
               id="adminNote"
               value={adminNote}
               onChange={(event) => onAdminNoteChange(event.target.value)}
-              className="mt-2 min-h-28 w-full rounded-md border border-input bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#f36c10]"
+              className="mt-2 min-h-28 w-full rounded-md border border-input bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               maxLength={500}
               placeholder={
                 approving

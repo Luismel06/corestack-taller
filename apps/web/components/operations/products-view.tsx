@@ -28,6 +28,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { deleteProduct, generateProductBarcode, getProductLabel, getProducts } from '@/lib/api';
+import { openBarcodeLabelPrintWindow, printBarcodeLabel } from '@/lib/barcode-label-print';
+import { brand } from '@/lib/brand';
 import { getStatusVariant, translateBarcodeType, translateStatus } from '@/lib/display-labels';
 import { formatCurrency } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
@@ -74,22 +76,39 @@ export function ProductsView() {
     },
   });
   const labelMutation = useMutation({
-    mutationFn: (productId: string) => {
+    mutationFn: ({ productId }: { productId: string; printWindow: Window }) => {
       if (!session) {
         throw new Error('Sesion requerida.');
       }
 
       return getProductLabel(session.tenantId, session.accessToken, productId);
     },
-    onSuccess: (label) => {
-      toast.success('Etiqueta lista para imprimir', {
-        description: `${label.name} - ${label.barcode}`,
-      });
+    onSuccess: (label, variables) => {
+      try {
+        printBarcodeLabel(variables.printWindow, label);
+        toast.success('Etiqueta enviada a la impresora', {
+          description: `${label.name} - ${label.barcode}`,
+        });
+      } catch (error) {
+        variables.printWindow.close();
+        toast.error(error instanceof Error ? error.message : 'No se pudo preparar la etiqueta.');
+      }
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      variables.printWindow.close();
       toast.error(error instanceof Error ? error.message : 'No se pudo preparar la etiqueta.');
     },
   });
+
+  function requestProductLabel(productId: string) {
+    const printWindow = openBarcodeLabelPrintWindow();
+    if (!printWindow) {
+      toast.error('El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes e inténtalo de nuevo.');
+      return;
+    }
+
+    labelMutation.mutate({ productId, printWindow });
+  }
   const deleteMutation = useMutation({
     mutationFn: (productId: string) => {
       if (!session) {
@@ -123,7 +142,7 @@ export function ProductsView() {
     <div className="space-y-6">
       <ModuleHeader
         title="Productos"
-        description="Catalogo de productos/servicios de Ferreteria RIVNU, precios e inventario desde PostgreSQL."
+        description={`Catálogo de productos y servicios de ${brand.name}, precios e inventario desde PostgreSQL.`}
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -271,7 +290,7 @@ export function ProductsView() {
                               <Button
                                 variant="outline"
                                 size="icon"
-                                onClick={() => labelMutation.mutate(product.id)}
+                                onClick={() => requestProductLabel(product.id)}
                                 aria-label="Imprimir etiqueta"
                               >
                                 <Printer className="h-4 w-4" />

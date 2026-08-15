@@ -2,7 +2,7 @@
   <rect width="640" height="420" rx="28" fill="#f8fafc"/>
   <rect x="44" y="42" width="552" height="336" rx="24" fill="#ecfdf5"/>
   <path d="M132 257c75-109 165-124 266-38 47 40 83 27 110-34" fill="none" stroke="#27313f" stroke-width="34" stroke-linecap="round"/>
-  <path d="M187 146c77-35 131-17 162 54-80 25-134 7-162-54z" fill="#f36c10"/>
-  <circle cx="154" cy="273" r="42" fill="#f36c10"/>
+  <path d="M187 146c77-35 131-17 162 54-80 25-134 7-162-54z" fill="#111111"/>
+  <circle cx="154" cy="273" r="42" fill="#111111"/>
   <text x="64" y="356" fill="#27313f" font-family="Arial, sans-serif" font-size="24" font-weight="700">Jardineria</text>
 </svg>

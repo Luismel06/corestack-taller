@@ -36,9 +36,11 @@ import {
   type SalesOrder,
 } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
+import { brand } from '@/lib/brand';
 import { isAdminSession } from '@/lib/authorization';
 import { getOrderClientLabel, getOrderSearchLabel } from '@/lib/order-client';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
+import { normalizeDominicanDocument, validateDominicanDocument } from '@/lib/dominican-documents';
 import { ModuleHeader } from './module-header';
 import { BarcodeInput } from './pos/barcode-input';
 import {
@@ -83,7 +85,9 @@ export function PosView() {
   const scanFrameRef = useRef<number | null>(null);
 
   const [customerId, setCustomerId] = useState('');
-  const [documentType, setDocumentType] = useState('CONSUMER_ELECTRONIC_32');
+  const [documentType, setDocumentType] = useState('CONSUMER_02');
+  const [fiscalDocumentType, setFiscalDocumentType] = useState<'RNC' | 'CEDULA'>('RNC');
+  const [fiscalDocumentNumber, setFiscalDocumentNumber] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [amountReceived, setAmountReceived] = useState(clearCurrencyInput());
   const [barcode, setBarcode] = useState('');
@@ -146,6 +150,7 @@ export function PosView() {
     session?.permissions.canCloseCashSession ??
     ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
   const cartReadOnly = !canCreateDirectSale && Boolean(loadedOrder);
+  const electronicInvoiceRequested = Boolean(loadedOrder?.electronicInvoiceRequested);
 
   useEffect(() => {
     const firstRegister = registersQuery.data?.find((register) => register.status === 'ACTIVE');
@@ -224,8 +229,37 @@ export function PosView() {
   const quantitiesByProduct = Object.fromEntries(
     cart.map((item) => [item.product.id, item.quantity]),
   );
+  const fiscalDocumentValid = validateDominicanDocument(fiscalDocumentType, fiscalDocumentNumber);
+  const fiscalCustomer = fiscalDocumentValid
+    ? activeCustomers.find(
+        (customer) =>
+          customer.documentType === fiscalDocumentType &&
+          normalizeDominicanDocument(customer.documentNumber ?? '') ===
+            normalizeDominicanDocument(fiscalDocumentNumber),
+      )
+    : undefined;
+  const fiscalCustomerMatchesOrder =
+    !loadedOrder?.customerId || fiscalCustomer?.id === loadedOrder.customerId;
+  const requiresFiscalDocument = ['FISCAL_CREDIT_01', 'FISCAL_CREDIT_ELECTRONIC_31'].includes(
+    documentType,
+  );
+  const requiresRnc = documentType === 'FISCAL_CREDIT_ELECTRONIC_31';
+  const requiresE32Recipient = documentType === 'CONSUMER_ELECTRONIC_32' && totals.total >= 250000;
+  const requiresRecipientDocument = requiresFiscalDocument || requiresE32Recipient;
+  const canCompleteFiscalDocument =
+    !requiresRecipientDocument ||
+    Boolean(
+      fiscalDocumentValid &&
+      fiscalCustomer &&
+      fiscalCustomerMatchesOrder &&
+      (!requiresRnc || fiscalDocumentType === 'RNC'),
+    );
   const canCompleteSale =
-    !isAdmin && cart.length > 0 && Boolean(currentCashSession) && Boolean(loadedOrder);
+    !isAdmin &&
+    cart.length > 0 &&
+    Boolean(currentCashSession) &&
+    Boolean(loadedOrder) &&
+    canCompleteFiscalDocument;
   const selectedOpenSession = (cashSessionsQuery.data ?? []).find(
     (cashSession) =>
       cashSession.status === 'OPEN' && cashSession.cashRegister.id === selectedRegisterId,
@@ -342,6 +376,8 @@ export function PosView() {
       return completePosSale(session.tenantId, session.accessToken, {
         customerId: customerId || undefined,
         documentType,
+        fiscalDocumentType: requiresRecipientDocument ? fiscalDocumentType : undefined,
+        fiscalDocumentNumber: requiresRecipientDocument ? fiscalDocumentNumber : undefined,
         paymentMethod,
         cashSessionId: currentCashSession?.id,
         amountReceived: amountReceived ? parseCurrencyInput(amountReceived) : undefined,
@@ -353,9 +389,14 @@ export function PosView() {
       });
     },
     onSuccess: async (invoice) => {
-      setMessage(`Factura ${invoice.invoiceNumber} creada correctamente.`);
+      setMessage(
+        invoice.eNcf
+          ? `e-CF ${invoice.eNcf} creada. Su XML y correo de simulación quedaron pendientes de firma y Resend.`
+          : `Factura ${invoice.invoiceNumber} creada correctamente.`,
+      );
       setCart([]);
       setLoadedOrder(null);
+      setFiscalDocumentNumber('');
       setAmountReceived(clearCurrencyInput());
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
       await queryClient.invalidateQueries({ queryKey: ['sales-orders'] });
@@ -407,6 +448,7 @@ export function PosView() {
         setLoadedOrder(null);
         setCart([]);
         setCustomerId('');
+        setFiscalDocumentNumber('');
         setAmountReceived(clearCurrencyInput());
         setMessage(`Orden ${order.orderNumber} quitada. Ya puedes seleccionar otra.`);
       }
@@ -530,6 +572,59 @@ export function PosView() {
     }
   }
 
+  function populateFiscalDocumentFromCustomer(nextCustomerId: string) {
+    const customer = activeCustomers.find((candidate) => candidate.id === nextCustomerId);
+    if (
+      customer &&
+      (customer.documentType === 'RNC' || customer.documentType === 'CEDULA') &&
+      customer.documentNumber
+    ) {
+      setFiscalDocumentType(customer.documentType);
+      setFiscalDocumentNumber(customer.documentNumber);
+    }
+  }
+
+  function handleCustomerChange(nextCustomerId: string) {
+    setCustomerId(nextCustomerId);
+    if (['FISCAL_CREDIT_01', 'FISCAL_CREDIT_ELECTRONIC_31'].includes(documentType)) {
+      populateFiscalDocumentFromCustomer(nextCustomerId);
+    }
+  }
+
+  function handleDocumentTypeChange(nextDocumentType: string) {
+    setDocumentType(nextDocumentType);
+    if (
+      ['FISCAL_CREDIT_01', 'FISCAL_CREDIT_ELECTRONIC_31'].includes(nextDocumentType) &&
+      customerId
+    ) {
+      populateFiscalDocumentFromCustomer(customerId);
+    }
+    if (nextDocumentType === 'FISCAL_CREDIT_ELECTRONIC_31') {
+      setFiscalDocumentType('RNC');
+    }
+  }
+
+  function handleFiscalDocumentTypeChange(nextDocumentType: 'RNC' | 'CEDULA') {
+    setFiscalDocumentType(nextDocumentType);
+  }
+
+  function handleFiscalDocumentNumberChange(nextDocumentNumber: string) {
+    setFiscalDocumentNumber(nextDocumentNumber);
+    const normalizedDocument = normalizeDominicanDocument(nextDocumentNumber);
+    const matchingCustomer = activeCustomers.find(
+      (customer) =>
+        customer.documentType === fiscalDocumentType &&
+        normalizeDominicanDocument(customer.documentNumber ?? '') === normalizedDocument,
+    );
+
+    if (
+      matchingCustomer &&
+      (!loadedOrder?.customerId || matchingCustomer.id === loadedOrder.customerId)
+    ) {
+      setCustomerId(matchingCustomer.id);
+    }
+  }
+
   function loadClaimedSalesOrder(order: SalesOrder) {
     const items: CartItem[] = [];
     for (const item of order.items) {
@@ -555,7 +650,13 @@ export function PosView() {
     }
 
     setLoadedOrder(order);
+    setDocumentType(order.electronicInvoiceRequested ? 'CONSUMER_ELECTRONIC_32' : 'CONSUMER_02');
+    setFiscalDocumentType('RNC');
     setCustomerId(order.customerId ?? '');
+    setFiscalDocumentNumber('');
+    if (order.customerId) {
+      populateFiscalDocumentFromCustomer(order.customerId);
+    }
     setCart(items);
     setMessage(`Orden ${order.orderNumber} cargada para cobrar.`);
   }
@@ -650,7 +751,7 @@ export function PosView() {
     <div className="space-y-5">
       <ModuleHeader
         title="Caja"
-        description="Cobro de ordenes enviadas a caja y cierre operativo de Ferreteria RIVNU."
+        description={`Cobro de órdenes enviadas a caja y cierre operativo de ${brand.name}.`}
       />
 
       <CashStatusHeader
@@ -713,7 +814,7 @@ export function PosView() {
 
           <div className="space-y-3 xl:sticky xl:top-24">
             {loadedOrder ? (
-              <div className="flex flex-col gap-2 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 px-3 py-2 text-sm text-[#9a3f05]">
+              <div className="flex flex-col gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <span>
                     Cobrando ticket pendiente {loadedOrder.orderNumber}. La factura se emitira al
@@ -723,7 +824,7 @@ export function PosView() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="border-[#f36c10]/40 bg-white text-[#9a3f05] hover:bg-[#f36c10]/10 shrink-0"
+                    className="shrink-0 border-primary/40 bg-white text-primary hover:bg-primary/10"
                     onClick={releaseLoadedOrder}
                     disabled={releaseOrderMutation.isPending || completeSaleMutation.isPending}
                   >
@@ -732,12 +833,12 @@ export function PosView() {
                   </Button>
                 </div>
                 {loadedOrder.notes ? (
-                  <div className="mt-1 border-t border-[#f36c10]/20 pt-1 text-xs text-[#9a3f05]">
+                  <div className="mt-1 border-t border-primary/20 pt-1 text-xs text-primary">
                     <span className="font-semibold">Nota:</span> {loadedOrder.notes}
                   </div>
                 ) : null}
                 {loadedOrder.paymentMode === 'CREDIT' ? (
-                  <div className="border-t border-[#f36c10]/20 pt-2 text-xs">
+                  <div className="border-t border-primary/20 pt-2 text-xs">
                     Venta fiada aprobada · Inicial{' '}
                     <strong>{formatCurrency(Number(loadedOrder.initialPaymentAmount))}</strong> ·
                     Saldo{' '}
@@ -762,6 +863,12 @@ export function PosView() {
                 customers={activeCustomers}
                 customerId={customerId}
                 documentType={documentType}
+                electronicInvoiceRequested={electronicInvoiceRequested}
+                requiresE32Recipient={requiresE32Recipient}
+                fiscalDocumentType={fiscalDocumentType}
+                fiscalDocumentNumber={fiscalDocumentNumber}
+                fiscalDocumentValid={fiscalDocumentValid}
+                fiscalCustomerName={fiscalCustomer?.name}
                 paymentMethod={paymentMethod}
                 salePaymentMode={loadedOrder?.paymentMode ?? 'CASH'}
                 dueDate={loadedOrder?.dueDate}
@@ -771,8 +878,10 @@ export function PosView() {
                 message={message}
                 canCompleteSale={canCompleteSale}
                 isCompleting={completeSaleMutation.isPending}
-                onCustomerChange={setCustomerId}
-                onDocumentTypeChange={setDocumentType}
+                onCustomerChange={handleCustomerChange}
+                onDocumentTypeChange={handleDocumentTypeChange}
+                onFiscalDocumentTypeChange={handleFiscalDocumentTypeChange}
+                onFiscalDocumentNumberChange={handleFiscalDocumentNumberChange}
                 onPaymentMethodChange={setPaymentMethod}
                 onAmountReceivedChange={setAmountReceived}
                 onCompleteSale={() => completeSaleMutation.mutate()}
@@ -874,17 +983,17 @@ function SalesOrdersQueuePanel({
       </CardHeader>
       <CardContent>
         {loadedOrder ? (
-          <div className="mb-3 rounded-md border border-[#f36c10]/30 bg-[#f36c10]/10 p-3">
+          <div className="mb-3 rounded-md border border-primary/30 bg-primary/10 p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-[#9a3f05]">
+                <p className="text-sm font-semibold text-primary">
                   Ticket cargado: {loadedOrder.orderNumber}
                 </p>
-                <p className="mt-1 text-xs text-[#9a3f05]">
+                <p className="mt-1 text-xs text-primary">
                   {getOrderSearchLabel(loadedOrder)} - {formatCurrency(Number(loadedOrder.total))}
                 </p>
                 {loadedOrder.notes ? (
-                  <p className="mt-2 text-xs text-[#9a3f05] bg-white/50 border border-[#f36c10]/20 rounded px-1.5 py-0.5 inline-block font-medium">
+                  <p className="mt-2 inline-block rounded border border-primary/20 bg-white/50 px-1.5 py-0.5 text-xs font-medium text-primary">
                     Nota: {loadedOrder.notes}
                   </p>
                 ) : null}
@@ -893,7 +1002,7 @@ function SalesOrdersQueuePanel({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="border-[#f36c10]/40 bg-white text-[#9a3f05] hover:bg-[#f36c10]/10"
+                className="border-primary/40 bg-white text-primary hover:bg-primary/10"
                 onClick={onReleaseLoaded}
                 disabled={isReleasing}
               >
@@ -901,7 +1010,7 @@ function SalesOrdersQueuePanel({
                 Quitar y elegir otra
               </Button>
             </div>
-            <p className="mt-2 text-xs text-[#9a3f05]">
+            <p className="mt-2 text-xs text-primary">
               Quita este ticket si no corresponde para poder seleccionar otro de la lista.
             </p>
           </div>
@@ -1045,7 +1154,7 @@ function CashStatusHeader({
   return (
     <div className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm lg:grid-cols-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#f36c10]/10 text-[#f36c10]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
           <Store className="h-5 w-5" />
         </div>
         <div>

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-label="Herramientas electricas">
   <rect width="640" height="420" rx="28" fill="#f8fafc"/>
   <rect x="44" y="42" width="552" height="336" rx="24" fill="#edf4ff"/>
-  <path d="M132 159h260c34 0 62 28 62 62v20H132z" fill="#f36c10"/>
+  <path d="M132 159h260c34 0 62 28 62 62v20H132z" fill="#111111"/>
   <path d="M210 241h128l-20 92h-88z" fill="#27313f"/>
   <path d="M453 186h52c18 0 33 15 33 33s-15 33-33 33h-52z" fill="#27313f"/>
   <circle cx="184" cy="199" r="28" fill="#fff"/>

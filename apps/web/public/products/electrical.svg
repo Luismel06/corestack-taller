@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-label="Electricidad">
   <rect width="640" height="420" rx="28" fill="#f8fafc"/>
   <rect x="44" y="42" width="552" height="336" rx="24" fill="#fff7ed"/>
-  <path d="M326 74 166 238h119l-45 108 224-181H335z" fill="#f36c10"/>
+  <path d="M326 74 166 238h119l-45 108 224-181H335z" fill="#111111"/>
   <path d="M430 111h72v204h-72z" fill="#27313f"/>
   <circle cx="466" cy="162" r="14" fill="#fff"/><circle cx="466" cy="256" r="14" fill="#fff"/>
   <text x="64" y="356" fill="#27313f" font-family="Arial, sans-serif" font-size="24" font-weight="700">Electricidad</text>

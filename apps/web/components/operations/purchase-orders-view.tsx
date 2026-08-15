@@ -76,6 +76,9 @@ export function PurchaseOrdersView() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState('');
+  const [destination, setDestination] = useState<'SALES_INVENTORY' | 'WAREHOUSE'>(
+    'SALES_INVENTORY',
+  );
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<EditablePurchaseItem[]>([blankItem()]);
@@ -170,6 +173,7 @@ export function PurchaseOrdersView() {
   function resetForm() {
     setEditingId(null);
     setSupplierId('');
+    setDestination('SALES_INVENTORY');
     setExpectedDeliveryDate('');
     setNotes('');
     setItems([blankItem()]);
@@ -192,6 +196,7 @@ export function PurchaseOrdersView() {
     }
     requestOrderMutation.mutate({
       supplierId,
+      destination,
       expectedDeliveryDate: expectedDeliveryDate || undefined,
       notes: notes.trim() || undefined,
       items: items.map((item) => ({
@@ -207,6 +212,7 @@ export function PurchaseOrdersView() {
   function editOrder(order: PurchaseOrder) {
     setEditingId(order.id);
     setSupplierId(order.supplierId);
+    setDestination(order.destination);
     setExpectedDeliveryDate(toDateInput(order.expectedDeliveryDate));
     setNotes(order.notes ?? '');
     setItems(
@@ -292,7 +298,7 @@ export function PurchaseOrdersView() {
           </CardHeader>
           <CardContent>
             <form onSubmit={submitOrder} className="space-y-5">
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
                 <FormField label="Suplidor">
                   <select
                     required
@@ -306,6 +312,22 @@ export function PurchaseOrdersView() {
                         {supplier.commercialName}
                       </option>
                     ))}
+                  </select>
+                </FormField>
+                <FormField
+                  label="Destino de la compra"
+                  hint="Almacén queda separado y no aumenta el inventario de ventas."
+                >
+                  <select
+                    required
+                    className={selectClassName}
+                    value={destination}
+                    onChange={(event) =>
+                      setDestination(event.target.value as 'SALES_INVENTORY' | 'WAREHOUSE')
+                    }
+                  >
+                    <option value="SALES_INVENTORY">Inventario de ventas</option>
+                    <option value="WAREHOUSE">Almacén</option>
                   </select>
                 </FormField>
                 <FormField
@@ -501,6 +523,8 @@ export function PurchaseOrdersView() {
                     <p className="font-semibold">{order.orderNumber}</p>
                     <p className="truncate text-sm text-muted-foreground">
                       {order.supplierNameSnapshot} · {order.items.length} producto(s)
+                      {' · '}
+                      {order.destination === 'WAREHOUSE' ? 'Almacén' : 'Inventario de ventas'}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -518,6 +542,10 @@ export function PurchaseOrdersView() {
                   <Meta label="Creada por" value={order.createdBy.name} />
                   <Meta label="Solicitud" value={formatDateTime(order.requestedAt)} />
                   <Meta label="Entrega estimada" value={formatDate(order.expectedDeliveryDate)} />
+                  <Meta
+                    label="Destino"
+                    value={order.destination === 'WAREHOUSE' ? 'Almacén' : 'Inventario de ventas'}
+                  />
                 </div>
                 <div className="overflow-x-auto rounded-md border">
                   <Table>

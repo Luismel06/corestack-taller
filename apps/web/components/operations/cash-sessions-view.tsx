@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { closeCashSession, getCashRegisters, getCashSessions, openCashSession } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { isAdminSession } from '@/lib/authorization';
 import {
   getStatusVariant,
@@ -171,7 +172,7 @@ export function CashSessionsView() {
     <div className="space-y-6">
       <ModuleHeader
         title="Sesiones de caja"
-        description="Apertura, control y cierre de caja de Ferreteria RIVNU."
+        description={`Apertura, control y cierre de caja de ${brand.name}.`}
       />
 
       {canOpenCashSession ? (
@@ -766,8 +767,8 @@ const reportMetricClasses: Record<
     value: 'text-emerald-950',
   },
   order: {
-    card: 'border-[#f36c10]/25 bg-[#f36c10]/10',
-    label: 'text-[#9a3f05]',
+    card: 'border-primary/25 bg-primary/10',
+    label: 'text-primary',
     value: 'text-[#7a3103]',
   },
   quote: {

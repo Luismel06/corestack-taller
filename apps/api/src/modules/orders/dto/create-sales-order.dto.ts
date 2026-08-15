@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -32,6 +33,10 @@ export class SalesOrderItemDto {
 export class CreateSalesOrderDto {
   @IsEnum(SalesOrderDestination)
   destination: SalesOrderDestination;
+
+  @IsOptional()
+  @IsBoolean()
+  electronicInvoiceRequested?: boolean;
 
   @IsOptional()
   @IsString()

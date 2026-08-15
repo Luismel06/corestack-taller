@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { getReceivablePayment } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import { SessionRequired, useCurrentSession } from './session-required';
 
@@ -87,11 +88,11 @@ export function ReceivablePaymentPrint({
 
         <header className="flex flex-col gap-5 border-b border-zinc-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f36c10]">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
               Recibo de abono
             </p>
             <h2 className="mt-2 text-2xl font-bold">{session.tenantName}</h2>
-            <p className="mt-1 text-sm text-zinc-600">Ferretería RIVNU</p>
+            <p className="mt-1 text-sm text-zinc-600">{brand.name}</p>
           </div>
           <div className="text-sm sm:text-right">
             <p className="font-semibold">{payment.receiptNumber ?? 'Recibo sin numeración'}</p>

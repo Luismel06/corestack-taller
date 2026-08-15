@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createProduct, getProduct, updateProduct, uploadProductImage } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { ModuleHeader } from './module-header';
 import { BarcodeCameraScanner } from './barcode-camera-scanner';
 import {
@@ -213,14 +214,14 @@ export function ProductForm({ productId }: { productId?: string }) {
     <div className="space-y-6">
       <ModuleHeader
         title={productId ? 'Editar producto' : 'Nuevo producto'}
-        description="Datos persistidos en PostgreSQL para el catalogo operativo de Ferreteria RIVNU."
+        description={`Datos persistidos en PostgreSQL para el catálogo operativo de ${brand.name}.`}
       />
 
       <Card>
         <CardHeader>
           <CardTitle>Ficha del producto</CardTitle>
           <CardDescription>
-            CoreStack valida duplicados de SKU y codigo de barras dentro del tenant RIVNU.
+            El sistema valida duplicados de SKU y código de barras dentro de la empresa.
           </CardDescription>
         </CardHeader>
         <CardContent>

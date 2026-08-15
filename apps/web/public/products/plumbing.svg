@@ -2,7 +2,7 @@
   <rect width="640" height="420" rx="28" fill="#f8fafc"/>
   <rect x="44" y="42" width="552" height="336" rx="24" fill="#ecfeff"/>
   <path d="M155 155h235v66H155z" fill="#27313f"/>
-  <path d="M344 155h66c50 0 90 40 90 90v32h-66v-32c0-14-11-24-24-24h-66z" fill="#f36c10"/>
-  <circle cx="174" cy="188" r="45" fill="none" stroke="#f36c10" stroke-width="24"/>
+  <path d="M344 155h66c50 0 90 40 90 90v32h-66v-32c0-14-11-24-24-24h-66z" fill="#111111"/>
+  <circle cx="174" cy="188" r="45" fill="none" stroke="#111111" stroke-width="24"/>
   <text x="64" y="356" fill="#27313f" font-family="Arial, sans-serif" font-size="24" font-weight="700">Plomeria</text>
 </svg>

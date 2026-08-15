@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-label="Seguridad industrial">
   <rect width="640" height="420" rx="28" fill="#f8fafc"/>
   <rect x="44" y="42" width="552" height="336" rx="24" fill="#fff7ed"/>
-  <path d="M162 235c15-82 80-135 158-135s143 53 158 135z" fill="#f36c10"/>
+  <path d="M162 235c15-82 80-135 158-135s143 53 158 135z" fill="#111111"/>
   <path d="M138 225h364v55H138z" fill="#27313f"/>
   <path d="M286 98h68v137h-68z" fill="#fff" opacity=".55"/>
   <text x="64" y="356" fill="#27313f" font-family="Arial, sans-serif" font-size="24" font-weight="700">Seguridad</text>

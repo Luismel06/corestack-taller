@@ -115,6 +115,7 @@ export class PurchasingService {
           tenantId,
           supplierId: supplier.id,
           orderNumber,
+          destination: dto.destination,
           expectedDeliveryDate: dto.expectedDeliveryDate
             ? this.parseBusinessDate(dto.expectedDeliveryDate)
             : undefined,
@@ -153,7 +154,12 @@ export class PurchasingService {
       action: 'PURCHASE_ORDER_CREATED',
       entity: 'PurchaseOrder',
       entityId: order.id,
-      metadata: { orderNumber, supplierId: supplier.id, total: order.total.toString() },
+      metadata: {
+        orderNumber,
+        supplierId: supplier.id,
+        destination: order.destination,
+        total: order.total.toString(),
+      },
     });
 
     return this.withDerivedStatus(order);
@@ -188,6 +194,7 @@ export class PurchasingService {
         where: { id: current.id },
         data: {
           supplierId: supplier.id,
+          destination: dto.destination ?? current.destination,
           expectedDeliveryDate:
             dto.expectedDeliveryDate === undefined
               ? undefined

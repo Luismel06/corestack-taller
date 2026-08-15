@@ -72,7 +72,7 @@ export function QuotationPrint({
 
       <article className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm print:border-0 print:shadow-none">
         <header className="border-b border-zinc-200 pb-4">
-          <p className="text-sm font-semibold uppercase tracking-wide text-[#f36c10]">Cotizacion</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-primary">Cotizacion</p>
           <h2 className="mt-2 text-2xl font-bold">{order.orderNumber}</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <Badge variant="outline">{translateStatus(order.status)}</Badge>

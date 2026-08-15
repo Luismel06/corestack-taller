@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { getPurchaseOrder } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ProcurementStatusBadge } from './procurement-ui';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -61,7 +62,7 @@ export function PurchaseOrderPrint({
       <article className="rounded-lg border bg-white p-7 text-zinc-950 shadow-sm print:border-0 print:p-0 print:shadow-none">
         <header className="flex items-start justify-between gap-5 border-b border-zinc-200 pb-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f36c10]">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
               Orden de compra
             </p>
             <h2 className="mt-2 text-2xl font-bold">{order.orderNumber}</h2>
@@ -70,7 +71,7 @@ export function PurchaseOrderPrint({
             </div>
           </div>
           <div className="text-right text-sm">
-            <p className="font-semibold">Ferretería RIVNU</p>
+            <p className="font-semibold">{brand.name}</p>
             <p>Moneda: DOP / RD$</p>
             <p>Fecha: {formatDate(order.createdAt)}</p>
           </div>
@@ -93,6 +94,10 @@ export function PurchaseOrderPrint({
           <div className="sm:text-right">
             <p className="text-xs uppercase tracking-wide text-zinc-500">Entrega estimada</p>
             <p className="mt-1 font-semibold">{formatDate(order.expectedDeliveryDate)}</p>
+            <p className="mt-3 text-xs uppercase tracking-wide text-zinc-500">Destino</p>
+            <p className="font-medium">
+              {order.destination === 'WAREHOUSE' ? 'Almacén' : 'Inventario de ventas'}
+            </p>
             <p className="mt-3 text-xs uppercase tracking-wide text-zinc-500">Solicitada por</p>
             <p className="font-medium">{order.requestedBy?.name ?? order.createdBy.name}</p>
           </div>
