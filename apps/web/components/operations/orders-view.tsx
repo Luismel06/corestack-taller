@@ -170,6 +170,7 @@ export function OrdersView() {
   const editToastShownRef = useRef<string | null>(null);
 
   const [destination, setDestination] = useState<OrderDestination>('CASH_SALE');
+  const [electronicInvoiceRequested, setElectronicInvoiceRequested] = useState(false);
   const [clientName, setClientName] = useState('');
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [quotationDocumentType, setQuotationDocumentType] = useState<'RNC' | 'CEDULA'>('CEDULA');
@@ -278,6 +279,7 @@ export function OrdersView() {
 
         // Cargar datos
         setDestination('QUOTATION');
+        setElectronicInvoiceRequested(order.electronicInvoiceRequested);
         setClientName(order.clientName || '');
         setCustomerId(order.customerId || getSpecialCustomerValue(order.priceLevel));
         setPriceLevel(order.priceLevel ?? 'REGULAR');
@@ -477,14 +479,11 @@ export function OrdersView() {
 
       if (destination === 'QUOTATION') {
         const normalizedDocument = normalizeDominicanDocument(quotationDocumentNumber);
-        const isValidDocument =
-          quotationDocumentType === 'RNC'
+        const isValidDocument = normalizedDocument
+          ? quotationDocumentType === 'RNC'
             ? validateDominicanRnc(quotationDocumentNumber)
-            : validateDominicanCedula(quotationDocumentNumber);
-
-        if (!normalizedDocument) {
-          throw new Error('El numero de documento es requerido para cotizaciones.');
-        }
+            : validateDominicanCedula(quotationDocumentNumber)
+          : true;
 
         if (!isValidDocument) {
           throw new Error(
@@ -495,6 +494,8 @@ export function OrdersView() {
 
       const payload = {
         destination,
+        electronicInvoiceRequested:
+          destination === 'CASH_SALE' ? electronicInvoiceRequested : false,
         clientName: trimmedClientName,
         customerId: getRegisteredCustomerId(customerId) || undefined,
         priceLevel,
@@ -507,9 +508,12 @@ export function OrdersView() {
             : undefined,
         creditRequestNote:
           paymentMode === 'CREDIT' ? creditRequestNote.trim() || undefined : undefined,
-        quotationDocumentType: destination === 'QUOTATION' ? quotationDocumentType : undefined,
+        quotationDocumentType:
+          destination === 'QUOTATION' && normalizeDominicanDocument(quotationDocumentNumber)
+            ? quotationDocumentType
+            : undefined,
         quotationDocumentNumber:
-          destination === 'QUOTATION'
+          destination === 'QUOTATION' && normalizeDominicanDocument(quotationDocumentNumber)
             ? normalizeDominicanDocument(quotationDocumentNumber)
             : undefined,
         notes: notes.trim() || undefined,
@@ -535,6 +539,7 @@ export function OrdersView() {
             : `Ticket pendiente ${order.orderNumber} enviado a caja. No es una factura fiscal.`;
       setMessage(successMessage);
       setCart([]);
+      setElectronicInvoiceRequested(false);
       setNotes('');
       setCustomerId('');
       setPriceLevel('REGULAR');
@@ -723,6 +728,14 @@ export function OrdersView() {
 
   function selectRegisteredCustomer(customer: Customer) {
     handleCustomerSelection(customer.id);
+    setCustomerSearchOpen(false);
+  }
+
+  function useTemporaryQuotationName() {
+    // A quotation can be issued for a one-time customer. Keep only the typed
+    // name on the quotation and never create or associate a Customer record.
+    setCustomerId('');
+    setPriceLevel('REGULAR');
     setCustomerSearchOpen(false);
   }
 
@@ -993,6 +1006,7 @@ export function OrdersView() {
                     className="text-danger hover:bg-danger/5 hover:text-danger"
                     onClick={() => {
                       setCart([]);
+                      setElectronicInvoiceRequested(false);
                       setNotes('');
                       setCustomerId('');
                       setPriceLevel('REGULAR');
@@ -1030,7 +1044,7 @@ export function OrdersView() {
                       type="button"
                       className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                         destination === 'CASH_SALE'
-                          ? 'bg-[#f36c10] text-white shadow-sm'
+                          ? 'bg-primary text-primary-foreground shadow-sm'
                           : 'text-zinc-600 hover:bg-zinc-50'
                       }`}
                       onClick={() => setDestination('CASH_SALE')}
@@ -1041,7 +1055,7 @@ export function OrdersView() {
                       type="button"
                       className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                         destination === 'QUOTATION'
-                          ? 'bg-[#f36c10] text-white shadow-sm'
+                          ? 'bg-primary text-primary-foreground shadow-sm'
                           : 'text-zinc-600 hover:bg-zinc-50'
                       }`}
                       onClick={() => setDestination('QUOTATION')}
@@ -1050,6 +1064,23 @@ export function OrdersView() {
                     </button>
                   </div>
                 </div>
+
+                {destination === 'CASH_SALE' ? (
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+                    <input
+                      type="checkbox"
+                      checked={electronicInvoiceRequested}
+                      onChange={(event) => setElectronicInvoiceRequested(event.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-input accent-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold">Factura electrónica (e-CF)</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Caja usará E31/E32 y la copia quedará dirigida al correo configurado de ALLPA.
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
 
                 <div className="space-y-2">
                   <Label htmlFor="orderPaymentMode">Modalidad de pago</Label>
@@ -1071,6 +1102,15 @@ export function OrdersView() {
                       : 'La modalidad se fija al crear la orden y no se podrá cambiar al llegar a caja.'}
                   </p>
                 </div>
+
+                {destination === 'QUOTATION' ? (
+                  <div className="space-y-1 border-l-2 border-primary pl-3">
+                    <p className="text-sm font-semibold text-foreground">Datos de cotización</p>
+                    <p className="text-xs text-muted-foreground">
+                      El nombre del cliente es obligatorio. La cédula o el RNC son opcionales.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <Label htmlFor="orderClientName">
@@ -1107,6 +1147,29 @@ export function OrdersView() {
                             ? 'Clientes registrados coincidentes'
                             : 'Clientes con saldo pendiente'}
                         </div>
+                        {destination === 'QUOTATION' && clientName.trim() ? (
+                          paymentMode === 'CASH' ? (
+                            <button
+                              type="button"
+                              role="option"
+                              className="mb-1 flex w-full flex-col rounded-md border border-primary/25 bg-primary/[0.045] px-3 py-2.5 text-left transition-colors hover:bg-primary/[0.09] focus-visible:bg-primary/[0.09]"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={useTemporaryQuotationName}
+                            >
+                              <span className="text-sm font-semibold text-foreground">
+                                Usar “{clientName.trim()}” solo para esta cotización
+                              </span>
+                              <span className="mt-0.5 text-xs text-muted-foreground">
+                                No se creará ni se vinculará un cliente registrado.
+                              </span>
+                            </button>
+                          ) : (
+                            <p className="mb-1 rounded-md border border-warning/25 bg-warning/[0.05] px-3 py-2 text-xs text-muted-foreground">
+                              Las cotizaciones fiadas requieren un cliente registrado con crédito
+                              habilitado.
+                            </p>
+                          )
+                        ) : null}
                         {customerSearchResults.length ? (
                           customerSearchResults.map((customer) => {
                             const balance = Number(customer.creditBalance ?? 0);
@@ -1161,8 +1224,9 @@ export function OrdersView() {
                     ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Busca y selecciona un cliente para consultar su saldo. Para contado tambien puedes
-                    escribir un cliente no registrado.
+                    {destination === 'QUOTATION'
+                      ? 'Puedes usar un cliente registrado o un nombre temporal. El nombre temporal queda solo en esta cotización.'
+                      : 'Busca y selecciona un cliente para consultar su saldo. Para contado tambien puedes escribir un cliente no registrado.'}
                   </p>
                   {selectedCustomer ? (
                     <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1195,31 +1259,49 @@ export function OrdersView() {
                 {destination === 'QUOTATION' ? (
                   <>
                     <div className="space-y-2">
-                      <Label htmlFor="quotationDocumentType">Tipo de documento</Label>
-                      <select
-                        id="quotationDocumentType"
-                        value={quotationDocumentType}
-                        onChange={(event) =>
-                          setQuotationDocumentType(event.target.value as 'RNC' | 'CEDULA')
-                        }
-                        className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-                      >
-                        <option value="CEDULA">Cedula</option>
-                        <option value="RNC">RNC</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="quotationDocumentNumber">
-                        Numero de documento <span className="text-danger">*</span>
-                      </Label>
-                      <Input
-                        id="quotationDocumentNumber"
-                        value={quotationDocumentNumber}
-                        onChange={(event) => setQuotationDocumentNumber(event.target.value)}
-                        placeholder={quotationDocumentType === 'RNC' ? '123456789' : '00123456789'}
-                        inputMode="numeric"
-                        required
-                      />
+                      <Label htmlFor="quotationDocumentNumber">Cédula o RNC (opcional)</Label>
+                      <div className="grid grid-cols-[132px_minmax(0,1fr)] gap-2">
+                        <select
+                          id="quotationDocumentType"
+                          aria-label="Tipo de documento"
+                          value={quotationDocumentType}
+                          onChange={(event) =>
+                            setQuotationDocumentType(event.target.value as 'RNC' | 'CEDULA')
+                          }
+                          className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+                        >
+                          <option value="CEDULA">Cédula</option>
+                          <option value="RNC">RNC</option>
+                        </select>
+                        <Input
+                          id="quotationDocumentNumber"
+                          value={quotationDocumentNumber}
+                          onChange={(event) => setQuotationDocumentNumber(event.target.value)}
+                          placeholder={quotationDocumentType === 'RNC' ? '123456789' : '00123456789'}
+                          inputMode="numeric"
+                        />
+                      </div>
+                      {quotationDocumentNumber ? (
+                        <p
+                          className={
+                            (quotationDocumentType === 'RNC'
+                              ? validateDominicanRnc(quotationDocumentNumber)
+                              : validateDominicanCedula(quotationDocumentNumber))
+                              ? 'text-xs text-success'
+                              : 'text-xs text-danger'
+                          }
+                        >
+                          {(quotationDocumentType === 'RNC'
+                            ? validateDominicanRnc(quotationDocumentNumber)
+                            : validateDominicanCedula(quotationDocumentNumber))
+                            ? 'Documento válido.'
+                            : 'Verifica el dígito verificador dominicano.'}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Puedes dejarlo vacío. Si lo indicas, validaremos la cédula o el RNC antes de guardar.
+                        </p>
+                      )}
                     </div>
                   </>
                 ) : null}
@@ -1468,7 +1550,7 @@ export function OrdersView() {
 
                 <Button
                   type="submit"
-                  className="h-14 w-full bg-[#f36c10] text-base text-white hover:bg-[#d85f0e]"
+                  className="h-14 w-full text-base"
                   disabled={!cart.length || createOrderMutation.isPending}
                 >
                   {editOrderId ? (
@@ -1580,7 +1662,7 @@ export function OrdersView() {
             </Button>
             <Button
               type="button"
-              className="h-11 bg-[#f36c10] px-4 text-white hover:bg-[#d85f0e]"
+              className="h-11 px-4"
               onClick={() => setMobileSection('order')}
             >
               Revisar

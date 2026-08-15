@@ -16,6 +16,7 @@ import {
   InitialPaymentOption,
   InvoiceStatus,
   Prisma,
+  ProductInventoryDestination,
   ProductStatus,
   ProductUnit,
   Role,
@@ -134,6 +135,7 @@ export class OrdersService {
     return this.prisma.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
@@ -154,6 +156,7 @@ export class OrdersService {
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -184,14 +187,31 @@ export class OrdersService {
     const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
     const discountRate = this.getDiscountRate(priceLevel);
     const paymentMode = dto.paymentMode ?? SalePaymentMode.CASH;
+    const electronicInvoiceRequested =
+      destination === SalesOrderDestination.CASH_SALE && dto.electronicInvoiceRequested === true;
 
     if (destination === SalesOrderDestination.QUOTATION) {
-      this.validateQuotationDocument(dto);
+      this.validateQuotationDetails(dto);
     }
 
     this.validatePaymentModeFields(paymentMode, dto);
 
     return this.prisma.$transaction(async (tx) => {
+      const ecfRecipientEmail = electronicInvoiceRequested
+        ? (
+            await tx.tenant.findUniqueOrThrow({
+              where: { id: tenantId },
+              select: { email: true },
+            })
+          ).email?.trim() || null
+        : null;
+
+      if (electronicInvoiceRequested && !ecfRecipientEmail) {
+        throw new BadRequestException(
+          'Configura el correo de la empresa antes de solicitar una factura electrónica.',
+        );
+      }
+
       const customer = dto.customerId
         ? await tx.customer.findFirst({
             where: {
@@ -241,9 +261,12 @@ export class OrdersService {
           destination,
           clientName,
           quotationDocumentType: isQuotation ? dto.quotationDocumentType : undefined,
-          quotationDocumentNumber: isQuotation
-            ? normalizeDominicanDocument(dto.quotationDocumentNumber ?? '')
-            : undefined,
+          quotationDocumentNumber:
+            isQuotation && dto.quotationDocumentNumber?.trim()
+              ? normalizeDominicanDocument(dto.quotationDocumentNumber)
+              : undefined,
+          electronicInvoiceRequested,
+          ecfRecipientEmail,
           orderNumber: this.generateOrderNumber(isQuotation),
           status: isQuotation
             ? SalesOrderStatus.QUOTATION
@@ -756,7 +779,7 @@ export class OrdersService {
   async update(tenantId: string, user: AuthenticatedUser, id: string, dto: CreateSalesOrderDto) {
     const membership = await this.ensureCanTakeOrders(tenantId, user);
 
-    this.validateQuotationDocument(dto);
+    this.validateQuotationDetails(dto);
 
     return this.prisma.$transaction(async (tx) => {
       await this.lockSalesOrder(tx, tenantId, id);
@@ -818,8 +841,8 @@ export class OrdersService {
           customerId: dto.customerId || null,
           priceLevel,
           discountRate,
-          quotationDocumentType: dto.quotationDocumentType,
-          quotationDocumentNumber: dto.quotationDocumentNumber
+          quotationDocumentType: dto.quotationDocumentType ?? null,
+          quotationDocumentNumber: dto.quotationDocumentNumber?.trim()
             ? normalizeDominicanDocument(dto.quotationDocumentNumber)
             : null,
           subtotal: computed.subtotal,
@@ -899,6 +922,7 @@ export class OrdersService {
     const products = await client.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         id: { in: Array.from(quantitiesByProduct.keys()) },
         status: ProductStatus.ACTIVE,
       },
@@ -1241,10 +1265,7 @@ export class OrdersService {
   private async ensureCanTakeOrders(tenantId: string, user: AuthenticatedUser) {
     const membership = this.getMembership(tenantId, user);
 
-    if (
-      !adminRoles.includes(membership.role) &&
-      membership.role !== Role.ORDER_TAKER
-    ) {
+    if (!adminRoles.includes(membership.role) && membership.role !== Role.ORDER_TAKER) {
       throw new ForbiddenException('Employee does not have permission to take orders.');
     }
 
@@ -1372,12 +1393,26 @@ export class OrdersService {
     return `${prefix}-${stamp}-${time}-${suffix}`;
   }
 
+  private validateQuotationDetails(dto: CreateSalesOrderDto) {
+    if (!dto.clientName?.trim()) {
+      throw new BadRequestException('Quotation requires client name.');
+    }
+
+    this.validateQuotationDocument(dto);
+  }
+
   private validateQuotationDocument(dto: CreateSalesOrderDto) {
     const documentType = dto.quotationDocumentType;
     const documentNumber = dto.quotationDocumentNumber?.trim();
 
+    if (!documentType && !documentNumber) {
+      return;
+    }
+
     if (!documentType || !documentNumber) {
-      throw new BadRequestException('Quotation requires document type and document number.');
+      throw new BadRequestException(
+        'Quotation document type and document number must be provided together.',
+      );
     }
 
     if (documentType !== DocumentType.RNC && documentType !== DocumentType.CEDULA) {

@@ -114,7 +114,7 @@ export class InvoicesService {
         data: {
           tenantId,
           customerId: dto.customerId,
-          documentType: dto.documentType ?? InvoiceDocumentType.CONSUMER_ELECTRONIC_32,
+          documentType: dto.documentType ?? InvoiceDocumentType.CONSUMER_02,
           invoiceNumber: dto.invoiceNumber ?? `RIV-MAN-${Date.now()}`,
           status,
           fiscalStatus: InvoiceFiscalStatus.NOT_APPLICABLE,

@@ -106,7 +106,7 @@ const statusVariants: Record<string, BadgeVariant> = {
 };
 
 const roleLabels: Record<string, string> = {
-  QORVEX_SUPER_ADMIN: 'Super admin CoreStack',
+  QORVEX_SUPER_ADMIN: 'Super administrador de plataforma',
   SUPER_ADMIN: 'Super admin',
   ADMIN: 'Administrador',
   ACCOUNTANT: 'Contador',
@@ -123,6 +123,8 @@ const documentTypeLabels: Record<string, string> = {
 };
 
 const invoiceDocumentTypeLabels: Record<string, string> = {
+  FISCAL_CREDIT_01: 'Factura de crédito fiscal B01',
+  CONSUMER_02: 'Factura de consumo B02',
   CONSUMER_ELECTRONIC_32: 'Factura de consumo e-CF 32',
   FISCAL_CREDIT_ELECTRONIC_31: 'Credito fiscal e-CF 31',
   DEBIT_NOTE_ELECTRONIC_33: 'Nota de debito e-CF 33',

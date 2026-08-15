@@ -1,4 +1,4 @@
-import { InvoiceDocumentType, PaymentMethod } from '@qorvex/database';
+import { DocumentType, InvoiceDocumentType, PaymentMethod } from '@qorvex/database';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -29,6 +29,14 @@ export class CompleteSaleDto {
   @IsOptional()
   @IsEnum(InvoiceDocumentType)
   documentType?: InvoiceDocumentType;
+
+  @IsOptional()
+  @IsIn([DocumentType.RNC, DocumentType.CEDULA])
+  fiscalDocumentType?: 'RNC' | 'CEDULA';
+
+  @IsOptional()
+  @IsString()
+  fiscalDocumentNumber?: string;
 
   @IsIn([PaymentMethod.CASH, PaymentMethod.CARD, PaymentMethod.TRANSFER])
   paymentMethod: PaymentMethod;

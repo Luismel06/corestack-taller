@@ -18,6 +18,12 @@ type PosPaymentPanelProps = {
   customers: Customer[];
   customerId: string;
   documentType: string;
+  electronicInvoiceRequested: boolean;
+  requiresE32Recipient: boolean;
+  fiscalDocumentType: 'RNC' | 'CEDULA';
+  fiscalDocumentNumber: string;
+  fiscalDocumentValid: boolean;
+  fiscalCustomerName?: string | null;
   paymentMethod: string;
   salePaymentMode: 'CASH' | 'CREDIT';
   dueDate?: string | null;
@@ -29,6 +35,8 @@ type PosPaymentPanelProps = {
   isCompleting: boolean;
   onCustomerChange: (value: string) => void;
   onDocumentTypeChange: (value: string) => void;
+  onFiscalDocumentTypeChange: (value: 'RNC' | 'CEDULA') => void;
+  onFiscalDocumentNumberChange: (value: string) => void;
   onPaymentMethodChange: (value: string) => void;
   onAmountReceivedChange: (value: string) => void;
   onCompleteSale: () => void;
@@ -38,6 +46,12 @@ export function PosPaymentPanel({
   customers,
   customerId,
   documentType,
+  electronicInvoiceRequested,
+  requiresE32Recipient,
+  fiscalDocumentType,
+  fiscalDocumentNumber,
+  fiscalDocumentValid,
+  fiscalCustomerName,
   paymentMethod,
   salePaymentMode,
   dueDate,
@@ -49,6 +63,8 @@ export function PosPaymentPanel({
   isCompleting,
   onCustomerChange,
   onDocumentTypeChange,
+  onFiscalDocumentTypeChange,
+  onFiscalDocumentNumberChange,
   onPaymentMethodChange,
   onAmountReceivedChange,
   onCompleteSale,
@@ -59,6 +75,12 @@ export function PosPaymentPanel({
     totals.received < totals.requiredPayment;
   const cashPayment = paymentMethod === 'CASH';
   const creditSale = salePaymentMode === 'CREDIT';
+  const requiresFiscalDocument = ['FISCAL_CREDIT_01', 'FISCAL_CREDIT_ELECTRONIC_31'].includes(
+    documentType,
+  );
+  const requiresRnc = documentType === 'FISCAL_CREDIT_ELECTRONIC_31';
+  const requiresRecipientDocument = requiresFiscalDocument || requiresE32Recipient;
+  const fiscalLabel = requiresRnc ? 'E31' : requiresE32Recipient ? 'E32' : 'B01';
 
   return (
     <div className="space-y-3">
@@ -80,6 +102,13 @@ export function PosPaymentPanel({
                 </option>
               ))}
             </select>
+            {requiresRecipientDocument ? (
+              <p className="text-xs text-muted-foreground">
+                {requiresE32Recipient
+                  ? 'Por superar RD$250,000, E32 requiere identificar y registrar al comprador.'
+                  : 'Requiere un cliente registrado para sustentar el crédito fiscal.'}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -90,11 +119,87 @@ export function PosPaymentPanel({
               onChange={(event) => onDocumentTypeChange(event.target.value)}
               className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <option value="CONSUMER_ELECTRONIC_32">Factura consumo e-CF 32</option>
-              <option value="FISCAL_CREDIT_ELECTRONIC_31">Credito fiscal e-CF 31</option>
+              {electronicInvoiceRequested ? (
+                <>
+                  <option value="CONSUMER_ELECTRONIC_32">Factura de consumo electrónica E32</option>
+                  <option value="FISCAL_CREDIT_ELECTRONIC_31">
+                    Factura de crédito fiscal electrónica E31
+                  </option>
+                </>
+              ) : (
+                <>
+                  <option value="CONSUMER_02">Factura de consumo B02</option>
+                  <option value="FISCAL_CREDIT_01">Factura de crédito fiscal B01</option>
+                </>
+              )}
             </select>
+            {electronicInvoiceRequested ? (
+              <p className="text-xs text-muted-foreground">
+                Esta orden solicita e-CF; la copia se enviará al correo configurado cuando Resend
+                esté activo.
+              </p>
+            ) : null}
           </div>
         </div>
+
+        {requiresRecipientDocument ? (
+          <div className="mt-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+            <div className="mb-3">
+              <p className="font-semibold text-zinc-950">Datos fiscales para {fiscalLabel}</p>
+              <p className="text-xs text-muted-foreground">
+                {requiresRnc
+                  ? 'E31 requiere el RNC del cliente. Se valida antes de facturar.'
+                  : requiresE32Recipient
+                    ? 'E32 igual o superior a RD$250,000 requiere el RNC o la cédula y el nombre del comprador.'
+                    : 'Indica el RNC o la cédula del cliente. El documento se valida antes de facturar.'}
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
+              <div className="space-y-2">
+                <Label htmlFor="fiscalDocumentType">Documento</Label>
+                <select
+                  id="fiscalDocumentType"
+                  value={fiscalDocumentType}
+                  disabled={requiresRnc}
+                  onChange={(event) =>
+                    onFiscalDocumentTypeChange(event.target.value as 'RNC' | 'CEDULA')
+                  }
+                  className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="RNC">RNC</option>
+                  <option value="CEDULA">Cédula</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fiscalDocumentNumber">
+                  {fiscalDocumentType === 'RNC' ? 'RNC del cliente' : 'Cédula del cliente'}
+                </Label>
+                <Input
+                  id="fiscalDocumentNumber"
+                  inputMode="numeric"
+                  value={fiscalDocumentNumber}
+                  onChange={(event) => onFiscalDocumentNumberChange(event.target.value)}
+                  placeholder={fiscalDocumentType === 'RNC' ? '000-00000-0' : '000-0000000-0'}
+                />
+              </div>
+            </div>
+            {fiscalDocumentNumber ? (
+              <p
+                className={
+                  fiscalDocumentValid && fiscalCustomerName
+                    ? 'mt-2 text-xs text-success'
+                    : 'mt-2 text-xs text-danger'
+                }
+              >
+                {fiscalDocumentValid
+                  ? fiscalCustomerName
+                    ? `Documento válido. Cliente: ${fiscalCustomerName}.`
+                    : 'Documento válido, pero no hay un cliente activo registrado con ese dato.'
+                  : `Verifica el ${fiscalDocumentType === 'RNC' ? 'RNC' : 'número de cédula'}.`}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="mt-3 grid gap-3">
           <div className="space-y-2">
@@ -122,7 +227,7 @@ export function PosPaymentPanel({
         ) : null}
       </div>
 
-      <div className="rounded-md border-2 border-[#f36c10]/40 bg-white p-4 shadow-sm">
+      <div className="rounded-md border-2 border-primary/40 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3">
           <div className="flex-1 space-y-2">
             <Label htmlFor="amountReceived">
@@ -172,7 +277,7 @@ export function PosPaymentPanel({
 
           <Button
             type="button"
-            className="h-16 w-full bg-[#f36c10] text-lg font-bold text-white hover:bg-[#d85f0e]"
+            className="h-16 w-full text-lg font-bold"
             disabled={!canCompleteSale || cashInsufficient || isCompleting}
             onClick={onCompleteSale}
           >

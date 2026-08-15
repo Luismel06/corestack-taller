@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getInvoices } from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
@@ -84,7 +85,7 @@ export function InvoicesView() {
     <div className="space-y-6">
       <ModuleHeader
         title="Facturas"
-        description="Facturas de Ferreteria RIVNU registradas en PostgreSQL, preparadas para e-CF futuro."
+        description={`Facturas de ${brand.name} registradas en PostgreSQL, preparadas para e-CF futuro.`}
       />
 
       <section className="grid gap-4 md:grid-cols-3">

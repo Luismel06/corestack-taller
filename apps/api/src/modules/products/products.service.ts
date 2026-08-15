@@ -10,6 +10,7 @@ import {
   EmployeeLogAction,
   InventoryMovementType,
   Prisma,
+  ProductInventoryDestination,
   ProductStatus,
   ProductUnit,
 } from '@qorvex/database';
@@ -45,6 +46,7 @@ export class ProductsService {
     return this.prisma.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         ...(q ? { OR: this.searchConditions(q) } : {}),
       },
       include: {
@@ -64,6 +66,7 @@ export class ProductsService {
     return this.prisma.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: this.searchConditions(query),
       },
@@ -81,6 +84,7 @@ export class ProductsService {
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -151,6 +155,7 @@ export class ProductsService {
           taxCategory: dto.taxCategory,
           taxRate: dto.taxRate ?? 0.18,
           trackInventory: dto.trackInventory ?? true,
+          inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
           stock,
           minStock: dto.minStock ?? 0,
           status: dto.status,
@@ -209,7 +214,11 @@ export class ProductsService {
 
   async findOne(tenantId: string, id: string) {
     const product = await this.prisma.product.findFirst({
-      where: { id, tenantId },
+      where: {
+        id,
+        tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+      },
       include: {
         category: true,
       },
@@ -693,9 +702,7 @@ export class ProductsService {
 
   private ensureQuantityMatchesUnit(unit: ProductUnit, quantity: number, field: string) {
     if (requiresWholeQuantity(unit) && !Number.isInteger(quantity)) {
-      throw new BadRequestException(
-        `Product unit ${unit} requires whole quantities for ${field}.`,
-      );
+      throw new BadRequestException(`Product unit ${unit} requires whole quantities for ${field}.`);
     }
   }
 }

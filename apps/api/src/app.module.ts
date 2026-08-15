@@ -25,6 +25,7 @@ import { SupplierInvoicesModule } from './modules/supplier-invoices/supplier-inv
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { UsersModule } from './modules/users/users.module';
+import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -51,6 +52,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ReceiptsModule,
     ReceivablesModule,
     InventoryModule,
+    WarehouseModule,
     InvoicesModule,
     OrdersModule,
     PosModule,

@@ -2,6 +2,7 @@ import { Database, FileDigit } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ModuleHeader } from '@/components/operations/module-header';
+import { brand } from '@/lib/brand';
 
 const settings = [
   {
@@ -23,7 +24,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <ModuleHeader
         title="Configuracion"
-        description="Ajustes operativos de Ferreteria RIVNU sobre la plataforma CoreStack."
+        description={`Ajustes operativos de ${brand.name}.`}
       />
       <div className="grid gap-4 md:grid-cols-2">
         {settings.map((item) => (

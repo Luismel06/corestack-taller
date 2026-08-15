@@ -9,7 +9,13 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { clearSession, getSession, type AuthSession } from '@/lib/auth-session';
 import { canAccessPath, getDefaultPathForSession } from '@/lib/authorization';
-import { getCurrentCashSession, getDashboardSummary } from '@/lib/api';
+import {
+  getCurrentCashSession,
+  getDashboardSummary,
+  getFiscalSequenceAlerts,
+  type FiscalSequenceAlert,
+} from '@/lib/api';
+import { brand } from '@/lib/brand';
 import { translateRole } from '@/lib/display-labels';
 import { cn, formatCurrency } from '@/lib/utils';
 import { GlobalSearch } from './global-search';
@@ -26,6 +32,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     queryKey: ['dashboard-summary', session?.tenantId, 'layout'],
     queryFn: () => getDashboardSummary(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session && canAccessPath(session, '/dashboard')),
+    refetchInterval: 60_000,
+  });
+  const fiscalSequenceAlertsQuery = useQuery({
+    queryKey: ['fiscal-sequence-alerts', session?.tenantId],
+    queryFn: () => getFiscalSequenceAlerts(session?.tenantId ?? '', session?.accessToken ?? ''),
+    enabled: Boolean(session),
+    refetchInterval: 60_000,
   });
   const currentCashSessionQuery = useQuery({
     queryKey: ['cash-session-current', session?.tenantId, 'logout-guard'],
@@ -127,11 +140,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex h-16 items-center justify-between gap-3 px-3 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="hidden h-9 w-9 items-center justify-center rounded-md bg-[#f36c10]/10 text-[#f36c10] sm:flex">
+                <div className="hidden h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary sm:flex">
                   <Building2 className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">Ferreteria RIVNU</p>
+                  <p className="truncate text-sm font-semibold">{brand.name}</p>
                   <p className="truncate text-xs text-muted-foreground">Operacion del cliente</p>
                 </div>
               </div>
@@ -144,17 +157,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 variant="ghost"
                 size="icon"
                 aria-label="Notificaciones"
-                className="hidden sm:inline-flex"
+                className="relative inline-flex"
                 onClick={() => setNotificationsOpen((current) => !current)}
               >
                 <Bell className="h-5 w-5" />
+                {fiscalSequenceAlertsQuery.data?.length ? (
+                  <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
+                    {fiscalSequenceAlertsQuery.data.length > 9
+                      ? '9+'
+                      : fiscalSequenceAlertsQuery.data.length}
+                  </span>
+                ) : null}
               </Button>
               {notificationsOpen ? (
                 <NotificationsPanel
                   pendingInvoices={summaryQuery.data?.pendingInvoices ?? 0}
                   lowStockProducts={summaryQuery.data?.lowStockProducts ?? 0}
                   openCashSessions={summaryQuery.data?.openCashSessions ?? 0}
-                  loading={summaryQuery.isLoading}
+                  fiscalSequenceAlerts={fiscalSequenceAlertsQuery.data ?? []}
+                  loading={summaryQuery.isLoading || fiscalSequenceAlertsQuery.isLoading}
                   onClose={() => setNotificationsOpen(false)}
                 />
               ) : null}
@@ -163,7 +184,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {session?.user.name.slice(0, 2).toUpperCase() ?? 'RV'}
                 </div>
                 <div className="hidden sm:block">
-                  <p className="text-sm font-medium">{session?.user.name ?? 'Ferreteria RIVNU'}</p>
+                  <p className="text-sm font-medium">{session?.user.name ?? brand.name}</p>
                   <p className="text-xs text-muted-foreground">{translateRole(session?.role) ?? 'Operacion'}</p>
                 </div>
               </div>
@@ -173,7 +194,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[92rem] px-3 py-4 print:max-w-none print:p-0 sm:px-6 sm:py-6">
+        <main className="animate-page-enter mx-auto w-full max-w-[92rem] px-3 py-4 print:max-w-none print:p-0 sm:px-6 sm:py-6">
           {children}
         </main>
       </div>
@@ -187,31 +208,53 @@ function NotificationsPanel({
   pendingInvoices,
   lowStockProducts,
   openCashSessions,
+  fiscalSequenceAlerts,
   loading,
   onClose,
 }: {
   pendingInvoices: number;
   lowStockProducts: number;
   openCashSessions: number;
+  fiscalSequenceAlerts: FiscalSequenceAlert[];
   loading: boolean;
   onClose: () => void;
 }) {
   const notifications = [
     {
+      id: 'pending-invoices',
       label: 'Facturas pendientes',
       value: pendingInvoices,
       href: '/invoices',
+      detail: undefined,
+      critical: false,
     },
     {
+      id: 'low-stock-products',
       label: 'Productos bajo stock',
       value: lowStockProducts,
       href: '/products',
+      detail: undefined,
+      critical: false,
     },
     {
+      id: 'open-cash-sessions',
       label: 'Cajas abiertas',
       value: openCashSessions,
       href: '/cash/sessions',
+      detail: undefined,
+      critical: false,
     },
+    ...fiscalSequenceAlerts.map((alert) => ({
+      id: alert.id,
+      label: getFiscalSequenceAlertLabel(alert),
+      value: alert.missing || alert.exhausted || alert.expired ? 'Revisar' : `${alert.remaining} restantes`,
+      href: '/settings/fiscal-sequences',
+      detail:
+        alert.missing || alert.exhausted || alert.expired
+          ? 'Requiere un bloque autorizado por DGII.'
+          : undefined,
+      critical: alert.severity === 'critical',
+    })),
   ];
 
   return (
@@ -228,13 +271,25 @@ function NotificationsPanel({
         <div className="space-y-2">
           {notifications.map((item) => (
             <Link
-              key={item.label}
+              key={item.id}
               href={item.href}
               onClick={onClose}
               className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 text-sm transition hover:border-zinc-300 hover:bg-zinc-50"
             >
-              <span>{item.label}</span>
-              <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold', item.value ? 'bg-[#f36c10]/10 text-[#b94c08]' : 'bg-zinc-100 text-zinc-500')}>
+              <span className="min-w-0">
+                <span className="block truncate">{item.label}</span>
+                {item.detail ? <span className="block text-xs text-muted-foreground">{item.detail}</span> : null}
+              </span>
+              <span
+                className={cn(
+                  'ml-3 shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold',
+                  item.critical
+                    ? 'bg-danger/10 text-danger'
+                    : item.value
+                      ? 'bg-primary/10 text-primary'
+                      : 'bg-zinc-100 text-zinc-500',
+                )}
+              >
                 {item.value}
               </span>
             </Link>
@@ -243,4 +298,11 @@ function NotificationsPanel({
       )}
     </div>
   );
+}
+
+function getFiscalSequenceAlertLabel(alert: FiscalSequenceAlert) {
+  if (alert.missing) return `${alert.prefix}: falta bloque autorizado`;
+  if (alert.expired) return `${alert.prefix}: vigencia fiscal vencida`;
+  if (alert.exhausted) return `${alert.prefix}: bloque agotado`;
+  return `${alert.prefix}: próximo a agotarse`;
 }

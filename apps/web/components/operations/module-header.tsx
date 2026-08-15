@@ -1,5 +1,7 @@
+import { brand } from '@/lib/brand';
+
 export function ModuleHeader({
-  eyebrow = 'Ferreteria RIVNU',
+  eyebrow = brand.name,
   title,
   description,
 }: {

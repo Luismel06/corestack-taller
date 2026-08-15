@@ -2,7 +2,7 @@
   <rect width="640" height="420" rx="28" fill="#f8fafc"/>
   <rect x="44" y="42" width="552" height="336" rx="24" fill="#fdf2f8"/>
   <rect x="171" y="133" width="176" height="173" rx="22" fill="#27313f"/>
-  <path d="M188 173h142v88H188z" fill="#f36c10"/>
+  <path d="M188 173h142v88H188z" fill="#111111"/>
   <path d="M389 111h84v43h-84zM472 126h40v170h-40z" fill="#27313f"/>
   <text x="64" y="356" fill="#27313f" font-family="Arial, sans-serif" font-size="24" font-weight="700">Pinturas</text>
 </svg>

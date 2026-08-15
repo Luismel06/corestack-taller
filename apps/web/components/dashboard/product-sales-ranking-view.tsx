@@ -114,7 +114,7 @@ function MetricCard({ label, value }: { label: string; value: number }) {
           <p className="mt-1 text-2xl font-semibold">{value}</p>
         </div>
         <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
-          <PackageSearch className="h-5 w-5 text-[#f36c10]" />
+          <PackageSearch className="h-5 w-5 text-primary" />
         </div>
       </CardContent>
     </Card>
@@ -139,7 +139,7 @@ function ProductSalesTable({
       <CardHeader>
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
-            <Icon className="h-5 w-5 text-[#f36c10]" />
+            <Icon className="h-5 w-5 text-primary" />
           </div>
           <div>
             <CardTitle>{title}</CardTitle>

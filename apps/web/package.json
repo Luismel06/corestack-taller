@@ -17,6 +17,7 @@
     "@zxing/browser": "^0.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "jsbarcode": "^3.12.3",
     "lucide-react": "^0.515.0",
     "next": "15.5.22",
     "qrcode.react": "^4.2.0",
@@ -30,6 +31,7 @@
     "zod": "^3.25.64"
   },
   "devDependencies": {
+    "@types/jsbarcode": "^3.11.4",
     "@types/node": "^24.0.3",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

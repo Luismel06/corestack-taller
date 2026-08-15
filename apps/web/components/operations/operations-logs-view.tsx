@@ -157,7 +157,7 @@ export function OperationsLogsView() {
                 >
                   <span className="flex items-center justify-between gap-3">
                     <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-                      <Icon className={cn('h-4 w-4 shrink-0', isActive && 'text-[#f36c10]')} />
+                      <Icon className={cn('h-4 w-4 shrink-0', isActive && 'text-primary')} />
                       <span className="truncate">{tab.label}</span>
                     </span>
                     <Badge variant={isActive ? 'success' : 'outline'}>{count}</Badge>
@@ -177,7 +177,7 @@ export function OperationsLogsView() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar por código, cliente, usuario o acción..."
               aria-label="Buscar logs operativos"
-              className="h-10 w-full rounded-md border border-input bg-white py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-[#f36c10]"
+              className="h-10 w-full rounded-md border border-input bg-white py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
 

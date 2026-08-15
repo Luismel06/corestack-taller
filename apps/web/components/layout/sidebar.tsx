@@ -3,6 +3,7 @@
 import {
   Activity,
   BadgeDollarSign,
+  Barcode,
   Boxes,
   ChevronDown,
   ChevronRight,
@@ -28,6 +29,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getSession, type AuthSession } from '@/lib/auth-session';
 import { canTakeOrders, isAccountantSession, isAdminSession } from '@/lib/authorization';
+import { brand, platform } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 
 type NavigationSectionId = 'main' | 'accounting' | 'secondary' | 'logs' | 'settings';
@@ -68,6 +70,7 @@ export const navigation: NavigationItem[] = [
   },
   { name: 'Cotizaciones', href: '/quotations', icon: FileText, section: 'main' },
   { name: 'Productos', href: '/products', icon: Package, section: 'main' },
+  { name: 'Códigos de barras', href: '/barcodes', icon: Barcode, section: 'main' },
   { name: 'Clientes', href: '/customers', icon: Users, section: 'main' },
   { name: 'Facturas', href: '/invoices', icon: FileText, primary: true, section: 'main' },
   { name: 'Devoluciones', href: '/returns', icon: RotateCcw, primary: true, section: 'main' },
@@ -92,6 +95,7 @@ export const navigation: NavigationItem[] = [
     section: 'accounting',
   },
   { name: 'Suplidores', href: '/suppliers', icon: Users, section: 'secondary' },
+  { name: 'Almacén', href: '/warehouse', icon: Boxes, section: 'secondary' },
   {
     name: 'Aprobaciones de crédito',
     href: '/credit-approvals',
@@ -102,6 +106,7 @@ export const navigation: NavigationItem[] = [
   { name: 'Logs operativos', href: '/operations/logs', icon: Activity, section: 'logs' },
   { name: 'Movimiento de caja', href: '/cash/logs', icon: ClipboardList, section: 'logs' },
   { name: 'Sesiones', href: '/cash/sessions', icon: ScrollText, section: 'logs' },
+  { name: 'Cajas', href: '/cash/registers', icon: Landmark, section: 'settings' },
   { name: 'Importaciones', href: '/settings/imports', icon: FileUp, section: 'settings' },
   { name: 'Configuración', href: '/settings', icon: Settings, section: 'settings' },
 ];
@@ -173,11 +178,11 @@ export function SidebarContent({
         )}
       >
         <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white shadow-sm">
-          <img src="/tenants/Ferreteria_RIVNU.jpeg" alt="" className="h-full w-full object-cover" />
+          <img src={brand.logoPath} alt="" className="h-full w-full object-contain p-1" />
         </div>
         <div className={cn('min-w-0', collapsed && 'hidden')}>
-          <p className="truncate text-sm font-semibold">Ferretería RIVNU</p>
-          <p className="truncate text-xs text-slate-400">Powered by CoreStack</p>
+          <p className="truncate text-sm font-semibold">{brand.name}</p>
+          <p className="truncate text-xs text-slate-400">{brand.tagline}</p>
         </div>
       </div>
 
@@ -187,7 +192,7 @@ export function SidebarContent({
             type="button"
             onClick={onToggle}
             className={cn(
-              'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400',
+              'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
               collapsed && 'justify-center px-2',
             )}
             aria-label={collapsed ? 'Desplegar menú' : 'Contraer menú'}
@@ -247,11 +252,11 @@ export function SidebarContent({
       <div className={cn('shrink-0 border-t border-slate-800 p-4', collapsed && 'px-3')}>
         <div className={cn('rounded-lg border border-slate-800 bg-slate-900/80 p-3', collapsed && 'px-2.5')}>
           <div className={cn('flex items-center gap-2 text-sm font-medium', collapsed && 'justify-center')}>
-            <Boxes className="h-4 w-4 text-[#f36c10]" />
-            <span className={cn(collapsed && 'hidden')}>CoreStack Core</span>
+            <img src={platform.logoPath} alt="" className="h-5 w-5 rounded object-cover" />
+            <span className={cn(collapsed && 'hidden')}>{platform.name}</span>
           </div>
           <p className={cn('mt-2 text-xs leading-5 text-slate-400', collapsed && 'hidden')}>
-            Plataforma provista por CoreStack. Datos aislados por tenant.
+            {platform.description} para {brand.name}.
           </p>
         </div>
       </div>
@@ -288,13 +293,13 @@ function SidebarNavigationGroup({
           type="button"
           onClick={() => onExpandedChange(!isExpanded)}
           className={cn(
-            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400',
+            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
             (isActive || isExpanded) && 'bg-white/[0.08] text-white',
           )}
           aria-expanded={isExpanded}
           aria-controls={`sidebar-section-${section.id}`}
         >
-          <Icon className={cn('h-5 w-5', isActive && 'text-[#f36c10]')} />
+          <Icon className={cn('h-5 w-5', isActive && 'text-white')} />
           <span className="flex-1 text-left">{section.label}</span>
           <ChevronDown
             className={cn('h-4 w-4 transition-transform duration-200', !isExpanded && '-rotate-90')}
@@ -346,14 +351,14 @@ function SidebarNavigationGroup({
         type="button"
         onClick={() => onOpenChange(!isOpen)}
         className={cn(
-          'flex w-full items-center justify-center rounded-lg p-2.5 text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400',
+          'flex w-full items-center justify-center rounded-lg p-2.5 text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
           isActive && 'bg-white/[0.12] text-white shadow-sm',
         )}
         aria-expanded={isOpen}
         aria-label={`${section.label}: mostrar opciones`}
         title={section.label}
       >
-        <Icon className={cn('h-5 w-5', isActive && 'text-[#f36c10]')} />
+        <Icon className={cn('h-5 w-5', isActive && 'text-white')} />
       </button>
 
       {isOpen ? (
@@ -399,7 +404,7 @@ function SidebarNavigationLink({
       href={item.href}
       onClick={onNavigate}
       className={cn(
-        'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400',
+        'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
         collapsed && 'justify-center px-2.5',
         isActive
           ? 'bg-white/[0.13] text-white shadow-sm'
@@ -411,7 +416,7 @@ function SidebarNavigationLink({
       <Icon
         className={cn(
           'h-5 w-5 shrink-0',
-          isActive && 'text-[#f36c10]',
+          isActive && 'text-white',
         )}
       />
       <span className={cn('min-w-0 truncate', collapsed && 'hidden')}>{item.name}</span>
@@ -492,14 +497,14 @@ export function MobileNavigation() {
                       href={item.href}
                       onClick={() => setActivePopover(null)}
                       className={cn(
-                        'flex min-h-12 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400',
+                        'flex min-h-12 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
                         isActive
                           ? 'bg-white/[0.14] text-white'
                           : 'text-slate-200 hover:bg-white/[0.08] hover:text-white',
                       )}
                       aria-current={isActive ? 'page' : undefined}
                     >
-                      <Icon className={cn('h-4 w-4 shrink-0', isActive && 'text-[#f36c10]')} />
+                      <Icon className={cn('h-4 w-4 shrink-0', isActive && 'text-white')} />
                       <span className="min-w-0 truncate">{item.name}</span>
                     </Link>
                   );
@@ -521,7 +526,7 @@ export function MobileNavigation() {
                 onClick={() => setActivePopover(null)}
                 className={cn(
                   'flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center text-[0.64rem] font-medium text-muted-foreground transition-colors',
-                  isActive ? 'bg-slate-950 text-white shadow-sm ring-1 ring-[#f36c10]/70' : '',
+                  isActive ? 'bg-slate-950 text-white shadow-sm ring-1 ring-white/70' : '',
                 )}
                 aria-current={isActive ? 'page' : undefined}
               >
@@ -584,7 +589,7 @@ function MobilePopoverTrigger({
       onClick={onClick}
       className={cn(
         'flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 text-center text-[0.64rem] font-medium text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        (active || open) && 'bg-slate-950 text-white shadow-sm ring-1 ring-[#f36c10]/70',
+        (active || open) && 'bg-slate-950 text-white shadow-sm ring-1 ring-white/70',
       )}
       aria-expanded={open}
       aria-label={`${label}: mostrar opciones`}
@@ -612,6 +617,7 @@ export function getVisibleNavigation(session: AuthSession | null) {
       '/customers',
       '/invoices',
       '/suppliers',
+      '/warehouse',
       '/purchase-orders',
       '/supplier-invoices',
       '/payables',

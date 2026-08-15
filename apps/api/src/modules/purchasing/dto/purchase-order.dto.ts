@@ -1,9 +1,11 @@
 import { Type } from 'class-transformer';
+import { PurchaseOrderDestination } from '@qorvex/database';
 import {
   ArrayMinSize,
   IsArray,
   IsDateString,
   IsNumber,
+  IsEnum,
   IsOptional,
   IsString,
   Max,
@@ -44,6 +46,9 @@ export class CreatePurchaseOrderDto {
   @IsString()
   supplierId: string;
 
+  @IsEnum(PurchaseOrderDestination)
+  destination: PurchaseOrderDestination;
+
   @IsOptional()
   @IsDateString()
   expectedDeliveryDate?: string;
@@ -64,6 +69,10 @@ export class UpdatePurchaseOrderDto {
   @IsOptional()
   @IsString()
   supplierId?: string;
+
+  @IsOptional()
+  @IsEnum(PurchaseOrderDestination)
+  destination?: PurchaseOrderDestination;
 
   @IsOptional()
   @IsDateString()

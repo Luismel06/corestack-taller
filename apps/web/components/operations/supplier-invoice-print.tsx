@@ -107,7 +107,7 @@ export function SupplierInvoicePrint({
 
           <header className="flex flex-col gap-5 border-b border-zinc-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f36c10]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
                 Factura de suplidor
               </p>
               <h2 className="mt-2 text-2xl font-bold">{invoice.invoiceNumber}</h2>

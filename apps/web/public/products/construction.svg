@@ -2,7 +2,7 @@
   <rect width="640" height="420" rx="28" fill="#f8fafc"/>
   <rect x="44" y="42" width="552" height="336" rx="24" fill="#f3f4f6"/>
   <path d="M168 116h154l34 204H132z" fill="#d9dee8"/>
-  <path d="M188 151h126l20 134H160z" fill="#f36c10"/>
+  <path d="M188 151h126l20 134H160z" fill="#111111"/>
   <path d="M398 127h82v193h-82zM488 163h40v157h-40z" fill="#27313f"/>
   <text x="64" y="356" fill="#27313f" font-family="Arial, sans-serif" font-size="24" font-weight="700">Construccion</text>
 </svg>

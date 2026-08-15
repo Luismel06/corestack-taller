@@ -25,6 +25,7 @@
     "helmet": "^8.2.0",
     "read-excel-file": "^9.2.0",
     "reflect-metadata": "^0.2.2",
+    "resend": "^6.20.0",
     "rxjs": "^7.8.2"
   },
   "dependenciesMeta": {
