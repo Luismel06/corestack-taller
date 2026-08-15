@@ -19,6 +19,7 @@ import {
 import {
   createPurchaseOrder,
   getProducts,
+  getWarehouseProducts,
   getPurchaseOrders,
   getSupplier,
   getSuppliers,
@@ -113,8 +114,11 @@ export function PurchaseOrdersView() {
     enabled: Boolean(session && supplierId),
   });
   const productsQuery = useQuery({
-    queryKey: ['products', session?.tenantId, 'purchase-order'],
-    queryFn: () => getProducts(session?.tenantId ?? '', session?.accessToken ?? ''),
+    queryKey: ['products', session?.tenantId, 'purchase-order', destination],
+    queryFn: () =>
+      destination === 'WAREHOUSE'
+        ? getWarehouseProducts(session?.tenantId ?? '', session?.accessToken ?? '')
+        : getProducts(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session),
   });
 
@@ -322,9 +326,10 @@ export function PurchaseOrdersView() {
                     required
                     className={selectClassName}
                     value={destination}
-                    onChange={(event) =>
-                      setDestination(event.target.value as 'SALES_INVENTORY' | 'WAREHOUSE')
-                    }
+                    onChange={(event) => {
+                      setDestination(event.target.value as 'SALES_INVENTORY' | 'WAREHOUSE');
+                      setItems([blankItem()]);
+                    }}
                   >
                     <option value="SALES_INVENTORY">Inventario de ventas</option>
                     <option value="WAREHOUSE">Almacén</option>

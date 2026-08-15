@@ -16,6 +16,7 @@ import {
   InitialPaymentOption,
   InvoiceStatus,
   Prisma,
+  ProductInventoryDestination,
   ProductStatus,
   ProductUnit,
   Role,
@@ -134,6 +135,7 @@ export class OrdersService {
     return this.prisma.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
@@ -154,6 +156,7 @@ export class OrdersService {
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -919,6 +922,7 @@ export class OrdersService {
     const products = await client.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         id: { in: Array.from(quantitiesByProduct.keys()) },
         status: ProductStatus.ACTIVE,
       },
@@ -1261,10 +1265,7 @@ export class OrdersService {
   private async ensureCanTakeOrders(tenantId: string, user: AuthenticatedUser) {
     const membership = this.getMembership(tenantId, user);
 
-    if (
-      !adminRoles.includes(membership.role) &&
-      membership.role !== Role.ORDER_TAKER
-    ) {
+    if (!adminRoles.includes(membership.role) && membership.role !== Role.ORDER_TAKER) {
       throw new ForbiddenException('Employee does not have permission to take orders.');
     }
 

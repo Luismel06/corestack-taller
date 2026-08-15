@@ -25,6 +25,7 @@ import {
   PaymentStatus,
   Prisma,
   Product,
+  ProductInventoryDestination,
   ProductStatus,
   ProductUnit,
   Role,
@@ -81,6 +82,7 @@ export class PosService {
     return this.prisma.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
@@ -101,6 +103,7 @@ export class PosService {
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -774,6 +777,7 @@ export class PosService {
     const products = await client.product.findMany({
       where: {
         tenantId,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         id: {
           in: Array.from(quantitiesByProduct.keys()),
         },

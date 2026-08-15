@@ -266,7 +266,7 @@ ${xmlTaxTotals(tax)}
       html: `<main style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#111827"><h1>Factura electrónica</h1><p>Hola ${xmlEscape(customerName)},</p><p>Se generó la factura electrónica <strong>${xmlEscape(input.eNcf)}</strong> de ${xmlEscape(input.tenant.commercialName ?? input.tenant.name)}.</p><table style="width:100%;border-collapse:collapse">${emailItems}</table><table style="width:100%;border-collapse:collapse;margin-top:16px">${emailTaxBreakdown(tax)}<tr><td colspan="3" style="padding:8px 0;border-top:1px solid #d1d5db"><strong>Total</strong></td><td align="right" style="padding:8px 0;border-top:1px solid #d1d5db"><strong>RD$${amount(input.total)}</strong></td></tr></table></main>`,
     },
     templateVariables: {
-      COMPANY_NAME: input.tenant.commercialName ?? input.tenant.name,
+      COMPANY_NAME: 'comprobante electronico',
       COMPANY_LEGAL_NAME: issuerName,
       COMPANY_RNC: input.tenant.rnc ?? '',
       COMPANY_EMAIL: input.tenant.email ?? '',

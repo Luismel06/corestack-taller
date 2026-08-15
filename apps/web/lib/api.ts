@@ -226,6 +226,7 @@ export type Product = {
   margin?: string | null;
   taxRate: string;
   trackInventory: boolean;
+  inventoryDestination: 'SALES_INVENTORY' | 'WAREHOUSE';
   stock: number;
   reservedStock: number;
   minStock: number;
@@ -271,6 +272,17 @@ export type WarehouseMovement = {
   createdAt: string;
   product: Pick<Product, 'id' | 'name' | 'sku' | 'barcode' | 'unit'>;
   createdBy: { id: string; name: string; email: string } | null;
+};
+
+export type WarehouseProductPayload = {
+  name: string;
+  sku?: string;
+  barcode?: string;
+  brand?: string;
+  description?: string;
+  unit?: string;
+  cost?: number;
+  initialQuantity?: number;
 };
 
 export type Invoice = {
@@ -2280,6 +2292,53 @@ export function getWarehouseStock(tenantId: string, accessToken: string) {
 
 export function getWarehouseMovements(tenantId: string, accessToken: string) {
   return fetchJson<WarehouseMovement[]>('/warehouse/movements', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getWarehouseProducts(tenantId: string, accessToken: string) {
+  return fetchJson<
+    (Product & {
+      warehouseStocks: Array<{
+        id: string;
+        quantity: number;
+        unitCost: string | null;
+        updatedAt: string;
+      }>;
+    })[]
+  >('/warehouse/products', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createWarehouseProduct(
+  tenantId: string,
+  accessToken: string,
+  payload: WarehouseProductPayload,
+) {
+  return fetchJson<Product>('/warehouse/products', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWarehouseProduct(
+  tenantId: string,
+  accessToken: string,
+  productId: string,
+  payload: Partial<WarehouseProductPayload>,
+) {
+  return fetchJson<Product>(`/warehouse/products/${productId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWarehouseProduct(tenantId: string, accessToken: string, productId: string) {
+  return fetchJson<Product>(`/warehouse/products/${productId}`, {
+    method: 'DELETE',
     headers: tenantHeaders(tenantId, accessToken),
   });
 }

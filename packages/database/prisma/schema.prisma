@@ -51,6 +51,11 @@ enum ProductStatus {
   DISCONTINUED
 }
 
+enum ProductInventoryDestination {
+  SALES_INVENTORY
+  WAREHOUSE
+}
+
 enum InventoryMovementType {
   INITIAL_STOCK
   PURCHASE
@@ -635,6 +640,7 @@ model Product {
   taxCategory            TaxCategory           @default(ITBIS_18)
   taxRate                Decimal               @default(0.18) @db.Decimal(5, 4)
   trackInventory         Boolean               @default(true)
+  inventoryDestination   ProductInventoryDestination @default(SALES_INVENTORY)
   stock                  Float                 @default(0)
   reservedStock          Float                 @default(0)
   minStock               Float                 @default(0)
@@ -659,6 +665,7 @@ model Product {
   @@unique([tenantId, barcode])
   @@index([tenantId])
   @@index([tenantId, status])
+  @@index([tenantId, inventoryDestination, status])
   @@index([tenantId, sku])
   @@index([tenantId, stock])
   @@index([createdAt])
