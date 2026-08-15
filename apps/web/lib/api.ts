@@ -590,6 +590,7 @@ export type CreateSalesOrderPayload = {
   destination: 'CASH_SALE' | 'QUOTATION';
   inventorySource?: 'SALES_INVENTORY' | 'WAREHOUSE';
   electronicInvoiceRequested?: boolean;
+  ecfRecipientEmail?: string;
   clientName?: string;
   customerId?: string;
   priceLevel?: SalesOrderPriceLevel;

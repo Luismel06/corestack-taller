@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsEmail,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -42,6 +43,11 @@ export class CreateSalesOrderDto {
   @IsOptional()
   @IsBoolean()
   electronicInvoiceRequested?: boolean;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(320)
+  ecfRecipientEmail?: string;
 
   @IsOptional()
   @IsString()

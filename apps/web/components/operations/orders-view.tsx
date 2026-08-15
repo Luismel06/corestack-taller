@@ -173,6 +173,7 @@ export function OrdersView() {
   const [destination, setDestination] = useState<OrderDestination>('CASH_SALE');
   const [inventorySource, setInventorySource] = useState<InventorySource>('SALES_INVENTORY');
   const [electronicInvoiceRequested, setElectronicInvoiceRequested] = useState(false);
+  const [ecfRecipientEmail, setEcfRecipientEmail] = useState('');
   const [clientName, setClientName] = useState('');
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [quotationDocumentType, setQuotationDocumentType] = useState<'RNC' | 'CEDULA'>('CEDULA');
@@ -478,6 +479,10 @@ export function OrdersView() {
         throw new Error('El nombre del cliente es requerido.');
       }
 
+      if (destination === 'CASH_SALE' && electronicInvoiceRequested && !ecfRecipientEmail.trim()) {
+        throw new Error('Indica el correo que recibirá la copia de la factura electrónica.');
+      }
+
       if (paymentMode === 'CREDIT') {
         if (!selectedCustomer) {
           throw new Error('Una venta fiada requiere seleccionar un cliente registrado.');
@@ -510,6 +515,10 @@ export function OrdersView() {
         inventorySource,
         electronicInvoiceRequested:
           destination === 'CASH_SALE' ? electronicInvoiceRequested : false,
+        ecfRecipientEmail:
+          destination === 'CASH_SALE' && electronicInvoiceRequested
+            ? ecfRecipientEmail.trim()
+            : undefined,
         clientName: trimmedClientName,
         customerId: getRegisteredCustomerId(customerId) || undefined,
         priceLevel,
@@ -555,6 +564,7 @@ export function OrdersView() {
       setCart([]);
       setInventorySource('SALES_INVENTORY');
       setElectronicInvoiceRequested(false);
+      setEcfRecipientEmail('');
       setNotes('');
       setCustomerId('');
       setPriceLevel('REGULAR');
@@ -1130,20 +1140,43 @@ export function OrdersView() {
                 </div>
 
                 {destination === 'CASH_SALE' ? (
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
-                    <input
-                      type="checkbox"
-                      checked={electronicInvoiceRequested}
-                      onChange={(event) => setElectronicInvoiceRequested(event.target.checked)}
-                      className="mt-1 h-4 w-4 rounded border-input accent-primary"
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold">Factura electrónica (e-CF)</span>
-                      <span className="block text-xs text-muted-foreground">
-                        Caja usará E31/E32 y la copia quedará dirigida al correo configurado de ALLPA.
+                  <div className="space-y-3">
+                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+                      <input
+                        type="checkbox"
+                        checked={electronicInvoiceRequested}
+                        onChange={(event) => {
+                          setElectronicInvoiceRequested(event.target.checked);
+                          if (!event.target.checked) setEcfRecipientEmail('');
+                        }}
+                        className="mt-1 h-4 w-4 rounded border-input accent-primary"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold">Factura electrónica (e-CF)</span>
+                        <span className="block text-xs text-muted-foreground">
+                          Caja usará E31/E32 y se enviará una copia a facturación y al cliente.
+                        </span>
                       </span>
-                    </span>
-                  </label>
+                    </label>
+                    {electronicInvoiceRequested ? (
+                      <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-3">
+                        <Label htmlFor="ecfRecipientEmail">Correo del cliente para la copia e-CF</Label>
+                        <Input
+                          id="ecfRecipientEmail"
+                          type="email"
+                          value={ecfRecipientEmail}
+                          onChange={(event) => setEcfRecipientEmail(event.target.value)}
+                          placeholder="cliente@correo.com"
+                          maxLength={320}
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Se enviará una copia individual a este correo y otra a
+                          {' '}facturacion@corestack-systems.com.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 <div className="space-y-2">

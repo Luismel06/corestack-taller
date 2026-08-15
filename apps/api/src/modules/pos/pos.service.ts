@@ -587,7 +587,7 @@ export class PosService {
                   }
                 : null,
               recipientEmail:
-                process.env.RESEND_ECF_RECIPIENT ?? order?.ecfRecipientEmail ?? tenant.email,
+                order?.ecfRecipientEmail ?? customer?.email ?? tenant.email,
               cashRegisterName: cashSession.cashRegister.name,
               paymentMethod: dto.paymentMethod,
               paymentMode: isCreditSale ? 'CREDIT' : 'CASH',
@@ -618,7 +618,13 @@ export class PosService {
                 emailDelivery: {
                   provider: 'RESEND',
                   status: eCfSimulation.status,
-                  recipient: eCfSimulation.recipientEmail,
+                  recipients: Array.from(
+                    new Set(
+                      ['facturacion@corestack-systems.com', eCfSimulation.recipientEmail].filter(
+                        (email): email is string => Boolean(email?.trim()),
+                      ),
+                    ),
+                  ),
                   message: eCfSimulation.email,
                 },
               },
@@ -666,7 +672,13 @@ export class PosService {
             ? {
                 electronicDocumentId: electronicDocument.id,
                 invoiceId: invoice.id,
-                recipient: eCfSimulation.recipientEmail,
+                recipients: Array.from(
+                  new Set(
+                    ['facturacion@corestack-systems.com', eCfSimulation.recipientEmail].filter(
+                      (email): email is string => Boolean(email?.trim()),
+                    ),
+                  ),
+                ),
                 subject: eCfSimulation.email.subject,
                 templateVariables: eCfSimulation.templateVariables,
               }
