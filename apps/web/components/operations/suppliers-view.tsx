@@ -31,7 +31,7 @@ import {
   type SupplierPayload,
   type SupplierStatus,
 } from '@/lib/api';
-import { isAdminSession } from '@/lib/authorization';
+import { hasPermission } from '@/lib/authorization';
 import {
   formatDominicanDocument,
   normalizeDominicanDocument,
@@ -102,7 +102,7 @@ const emptySupplierForm: SupplierForm = {
 export function SuppliersView() {
   const session = useCurrentSession();
   const queryClient = useQueryClient();
-  const admin = isAdminSession(session);
+  const admin = hasPermission(session, 'suppliers.manage');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'ALL' | SupplierStatus>('ALL');
   const [selectedId, setSelectedId] = useState<string | null>(null);

@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { Role } from '@qorvex/database';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -9,6 +10,7 @@ import { AuditService } from './audit.service';
 
 @Controller('audit')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
+@RequirePermissions('audit.view')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 

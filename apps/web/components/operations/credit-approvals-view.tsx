@@ -16,7 +16,7 @@ import {
   type CreditApprovalStatus,
   type CreditSaleApproval,
 } from '@/lib/api';
-import { isAdminSession } from '@/lib/authorization';
+import { hasPermission } from '@/lib/authorization';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -110,7 +110,7 @@ export function CreditApprovalsView() {
     return <SessionRequired session={session} />;
   }
 
-  const canDecide = isAdminSession(session);
+  const canDecide = hasPermission(session, 'credit.approve');
 
   function openDecision(approval: CreditSaleApproval, action: 'APPROVE' | 'REJECT') {
     setDecision({ approval, action });
@@ -156,7 +156,7 @@ export function CreditApprovalsView() {
         </div>
       </div>
 
-      {decision ? (
+      {decision && canDecide ? (
         <Card className={decision.action === 'APPROVE' ? 'border-sky-200' : 'border-red-200'}>
           <CardHeader>
             <CardTitle>
@@ -173,6 +173,7 @@ export function CreditApprovalsView() {
               <label className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
                 <input
                   type="checkbox"
+                  disabled={!hasPermission(session, 'credit.override_limit')}
                   className="mt-1"
                   checked={authorizeLimitExcess}
                   onChange={(event) => setAuthorizeLimitExcess(event.target.checked)}

@@ -1,4 +1,5 @@
 'use client';
+import { hasPermission } from '@/lib/authorization';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -103,7 +104,9 @@ export function ProductsView() {
   function requestProductLabel(productId: string) {
     const printWindow = openBarcodeLabelPrintWindow();
     if (!printWindow) {
-      toast.error('El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes e inténtalo de nuevo.');
+      toast.error(
+        'El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes e inténtalo de nuevo.',
+      );
       return;
     }
 
@@ -130,7 +133,7 @@ export function ProductsView() {
     return <SessionRequired session={session} />;
   }
 
-  const readOnly = session.role === 'ACCOUNTANT';
+  const readOnly = !hasPermission(session, 'products.manage');
   const products = productsQuery.data ?? [];
   const pageCount = Math.max(1, Math.ceil(products.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -365,9 +368,7 @@ export function ProductsView() {
         summary={
           productPendingDeactivation ? (
             <div>
-
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-
                 Producto
               </p>
               <p className="mt-0.5 font-semibold text-foreground">

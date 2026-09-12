@@ -17,6 +17,7 @@
     "db:cleanup:rivnu": "pnpm --filter @qorvex/database cleanup:rivnu",
     "db:cleanup:rivnu:operational": "pnpm --filter @qorvex/database cleanup:rivnu:operational",
     "db:seed": "pnpm --filter @qorvex/database seed",
+    "db:seed:workshop": "pnpm --filter @qorvex/api build && node --env-file=.env packages/database/prisma/seed-workshop-demo.cjs",
     "db:studio": "pnpm --filter @qorvex/database studio"
   },
   "devDependencies": {

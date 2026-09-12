@@ -5,12 +5,17 @@ import {
   IsEmail,
   IsEnum,
   IsOptional,
+  IsObject,
   IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
 
 export class EmployeePermissionsDto {
+  @IsOptional()
+  @IsObject()
+  permissionOverrides?: Record<string, boolean>;
+
   @IsOptional()
   @IsBoolean()
   canUsePos?: boolean;

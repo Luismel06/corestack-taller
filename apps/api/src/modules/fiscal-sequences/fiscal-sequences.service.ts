@@ -1,14 +1,7 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
-import {
-  FiscalSequenceStatus,
-  InvoiceDocumentType,
-  Role,
-} from '@qorvex/database';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { FiscalSequenceStatus, InvoiceDocumentType, Role } from '@qorvex/database';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { requirePermissions } from '../../common/authorization';
 import {
   normalizeDominicanDocument,
   validateDominicanDocument,
@@ -16,10 +9,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFiscalSequenceDto } from './dto/create-fiscal-sequence.dto';
 
-const fiscalDocumentConfig: Record<
-  InvoiceDocumentType,
-  { prefix: string; digits: number }
-> = {
+const fiscalDocumentConfig: Record<InvoiceDocumentType, { prefix: string; digits: number }> = {
   [InvoiceDocumentType.FISCAL_CREDIT_01]: { prefix: 'B01', digits: 8 },
   [InvoiceDocumentType.CONSUMER_02]: { prefix: 'B02', digits: 8 },
   [InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31]: { prefix: 'E31', digits: 10 },
@@ -137,11 +127,7 @@ export class FiscalSequencesService {
           sequence.expired || sequence.exhausted || sequence.remaining <= sequence.threshold,
       );
 
-    if (
-      !sequences.some(
-        (sequence) => sequence.documentType === InvoiceDocumentType.CONSUMER_02,
-      )
-    ) {
+    if (!sequences.some((sequence) => sequence.documentType === InvoiceDocumentType.CONSUMER_02)) {
       alerts.unshift({
         id: 'missing-consumer-02-sequence',
         documentType: InvoiceDocumentType.CONSUMER_02,
@@ -178,10 +164,7 @@ export class FiscalSequencesService {
       throw new BadRequestException('Este tipo de comprobante no admite bloques fiscales.');
     }
 
-    if (
-      dto.issuerDocumentType !== 'RNC' &&
-      dto.issuerDocumentType !== 'CEDULA'
-    ) {
+    if (dto.issuerDocumentType !== 'RNC' && dto.issuerDocumentType !== 'CEDULA') {
       throw new BadRequestException('El documento del emisor debe ser RNC o cédula.');
     }
 
@@ -205,13 +188,8 @@ export class FiscalSequencesService {
       );
     }
 
-    if (
-      requiresDgiiAuthorization &&
-      !dto.authorizationNumber?.trim()
-    ) {
-      throw new BadRequestException(
-        `${config.prefix} requiere el número de autorización de DGII.`,
-      );
+    if (requiresDgiiAuthorization && !dto.authorizationNumber?.trim()) {
+      throw new BadRequestException(`${config.prefix} requiere el número de autorización de DGII.`);
     }
 
     if (validUntil && validUntil.getTime() < Date.now()) {
@@ -270,16 +248,16 @@ export class FiscalSequencesService {
   }
 
   private assertCanManageSequences(tenantId: string, user: AuthenticatedUser) {
-    const tenantMembership = user.memberships.find((membership) => membership.tenantId === tenantId);
+    requirePermissions(user, tenantId, 'settings.fiscal');
+    const tenantMembership = user.memberships.find(
+      (membership) => membership.tenantId === tenantId,
+    );
     const platformMembership = user.memberships.find(
       (membership) =>
         membership.role === Role.SUPER_ADMIN || membership.role === Role.QORVEX_SUPER_ADMIN,
     );
 
-    if (
-      !tenantMembership ||
-      (!tenantMembership.canManageFiscalSequences && !platformMembership)
-    ) {
+    if (!tenantMembership || (!tenantMembership.canManageFiscalSequences && !platformMembership)) {
       throw new ForbiddenException('Se requiere permiso para administrar secuencias fiscales.');
     }
   }

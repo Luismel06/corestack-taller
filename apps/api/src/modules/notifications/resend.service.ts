@@ -11,11 +11,47 @@ type EcfEmailCopy = {
   templateVariables: Record<string, string>;
 };
 
+export type DocumentEmail = {
+  to: string;
+  subject: string;
+  html: string;
+  templateId?: string;
+  templateVariables: Record<string, string>;
+  idempotencyKey: string;
+};
+
 @Injectable()
 export class ResendService {
   private readonly logger = new Logger(ResendService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async sendDocument(input: DocumentEmail) {
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.RESEND_FROM;
+    if (!apiKey || !from) {
+      throw new Error('Resend no está configurado. Define RESEND_API_KEY y RESEND_FROM.');
+    }
+
+    const resend = new Resend(apiKey);
+    const common = {
+      from,
+      to: [input.to],
+      subject: input.subject,
+      headers: { 'Idempotency-Key': input.idempotencyKey },
+    };
+    const result = input.templateId
+      ? await resend.emails.send({
+          ...common,
+          template: { id: input.templateId, variables: input.templateVariables },
+        })
+      : await resend.emails.send({ ...common, html: input.html });
+
+    if (result.error || !result.data?.id) {
+      throw new Error(result.error?.message ?? 'Resend no confirmó el envío del correo.');
+    }
+    return { emailId: result.data.id };
+  }
 
   async sendEcfCopy(input: EcfEmailCopy) {
     const apiKey = process.env.RESEND_API_KEY;

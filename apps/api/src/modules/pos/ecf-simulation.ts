@@ -20,6 +20,7 @@ type EcfSimulationInput = {
   recipientEmail?: string | null;
   cashRegisterName?: string | null;
   paymentMethod: string;
+  payments?: Array<{ method: string; amount: number }>;
   paymentMode: 'CASH' | 'CREDIT';
   subtotal: DecimalValue;
   taxTotal: DecimalValue;
@@ -169,14 +170,50 @@ export function buildEcfSimulation(input: EcfSimulationInput) {
   const customerDocument = input.customer?.documentNumber ?? '';
   const tax = getTaxBreakdown(input.items);
   const typeOfPayment = input.paymentMode === 'CREDIT' ? '2' : '1';
-  const paymentForm =
-    input.paymentMethod === 'CARD' ? '2' : input.paymentMethod === 'TRANSFER' ? '3' : '1';
-  const paymentMethodLabel =
-    input.paymentMethod === 'CARD'
-      ? 'Tarjeta'
-      : input.paymentMethod === 'TRANSFER'
-        ? 'Transferencia'
-        : 'Efectivo';
+  // DGII Formato e-CF v1.0, IdDoc / TablaFormasPago: 1 efectivo,
+  // 2 cheque/transferencia/depósito, 3 tarjeta, 4 crédito, 8 otras formas.
+  const paymentCodes: Record<string, string> = {
+    CASH: '1',
+    CHECK: '2',
+    TRANSFER: '2',
+    CARD: '3',
+    CREDIT: '4',
+    OTHER: '8',
+  };
+  const paymentLabels: Record<string, string> = {
+    CASH: 'Efectivo',
+    CARD: 'Tarjeta',
+    TRANSFER: 'Transferencia',
+    CHECK: 'Cheque',
+    OTHER: 'Otro medio',
+    CREDIT: 'Saldo a crédito',
+  };
+  const payments = input.payments ?? [
+    {
+      method: input.paymentMode === 'CREDIT' ? 'CREDIT' : input.paymentMethod,
+      amount: Number(input.total.toString()),
+    },
+  ];
+  const paymentGroups = new Map<string, number>();
+  for (const payment of payments) {
+    const code = paymentCodes[payment.method];
+    if (!code) throw new Error('Forma de pago no soportada para el XML e-CF.');
+    paymentGroups.set(code, (paymentGroups.get(code) ?? 0) + Math.round(payment.amount * 100));
+  }
+  const pendingCents =
+    Math.round(Number(input.total.toString()) * 100) -
+    payments.reduce((sum, payment) => sum + Math.round(payment.amount * 100), 0);
+  if (input.paymentMode === 'CREDIT' && pendingCents > 0) paymentGroups.set('4', pendingCents);
+  const paymentMethodLabel = payments
+    .map((payment) => `${paymentLabels[payment.method]}: RD$${payment.amount.toFixed(2)}`)
+    .concat(pendingCents > 0 ? [`Saldo a crédito: RD$${(pendingCents / 100).toFixed(2)}`] : [])
+    .join(' · ');
+  const paymentFormsXml = [...paymentGroups]
+    .map(
+      ([code, cents]) =>
+        `<FormaDePago><FormaPago>${code}</FormaPago><MontoPago>${(cents / 100).toFixed(2)}</MontoPago></FormaDePago>`,
+    )
+    .join('\n        ');
   const paymentModeLabel = input.paymentMode === 'CREDIT' ? 'Crédito' : 'Contado';
   const details = input.items
     .map(
@@ -216,10 +253,7 @@ export function buildEcfSimulation(input: EcfSimulationInput) {
       <TipoIngresos>01</TipoIngresos>
       <TipoPago>${typeOfPayment}</TipoPago>
       <TablaFormasPago>
-        <FormaDePago>
-          <FormaPago>${paymentForm}</FormaPago>
-          <MontoPago>${amount(input.total)}</MontoPago>
-        </FormaDePago>
+        ${paymentFormsXml}
       </TablaFormasPago>
     </IdDoc>
     <Emisor>
@@ -285,7 +319,7 @@ ${xmlTaxTotals(tax)}
         dateStyle: 'medium',
         timeStyle: 'short',
       }),
-      CASH_REGISTER: input.cashRegisterName ?? 'Caja principal - ALLPA',
+      CASH_REGISTER: input.cashRegisterName ?? 'Caja principal',
       PAYMENT_METHOD: paymentMethodLabel,
       PAYMENT_MODE: paymentModeLabel,
       ITEMS_HTML: emailItems,

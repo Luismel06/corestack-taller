@@ -1,5 +1,5 @@
-import { WarehouseView } from '@/components/operations/warehouse-view';
+import { redirect } from 'next/navigation';
 
 export default function WarehousePage() {
-  return <WarehouseView />;
+  redirect('/inventory');
 }

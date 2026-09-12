@@ -542,6 +542,16 @@ function CashSessionReport({
             value={formatCurrency(paymentTotals.TRANSFER)}
             tone="transfer"
           />
+          <ReportMetric
+            label="Pagos con cheque"
+            value={formatCurrency(paymentTotals.CHECK)}
+            tone="transfer"
+          />
+          <ReportMetric
+            label="Otros medios"
+            value={formatCurrency(paymentTotals.OTHER)}
+            tone="card"
+          />
         </div>
       </details>
 
@@ -586,12 +596,22 @@ function CashSessionReport({
                       <td className="px-3 py-2">
                         {invoice.salesOrder
                           ? `Ticket ${invoice.salesOrder.orderNumber}`
-                          : 'Venta directa admin'}
+                          : 'Venta de mostrador'}
                       </td>
                       <td className="px-3 py-2 font-medium">{invoice.invoiceNumber}</td>
                       <td className="px-3 py-2">{invoice.customer?.name ?? 'Consumidor final'}</td>
                       <td className="px-3 py-2">{invoice.issuedBy?.name ?? 'Empleado'}</td>
-                      <td className="px-3 py-2">{translatePaymentMethod(invoice.paymentMethod)}</td>
+                      <td className="px-3 py-2">
+                        {invoice.paymentMethod
+                          ? translatePaymentMethod(invoice.paymentMethod)
+                          : new Set(
+                                (invoice.payments ?? [])
+                                  .filter((payment) => payment.status === 'COMPLETED')
+                                  .map((payment) => payment.method),
+                              ).size > 1
+                            ? 'Pago combinado'
+                            : 'Sin pago registrado'}
+                      </td>
                       <td className="px-3 py-2 text-right">
                         {formatCurrency(Number(invoice.paidAmount))}
                       </td>
@@ -864,12 +884,14 @@ function getInvoicePaymentTotals(invoices: ReportInvoice[]) {
     CASH: 0,
     CARD: 0,
     TRANSFER: 0,
+    CHECK: 0,
+    OTHER: 0,
   };
 
   for (const invoice of invoices) {
     if (invoice.payments?.length) {
       for (const payment of invoice.payments) {
-        if (payment.method in totals) {
+        if (payment.status === 'COMPLETED' && payment.method in totals) {
           totals[payment.method as keyof typeof totals] += Number(payment.amount);
         }
       }

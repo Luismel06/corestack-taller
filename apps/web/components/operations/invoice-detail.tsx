@@ -1,9 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Printer } from 'lucide-react';
+import { ArrowLeft, Mail, Printer } from 'lucide-react';
 import Image from 'next/image';
-import { useEffect, useRef } from 'react';
+import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getInvoice } from '@/lib/api';
@@ -13,6 +14,7 @@ import { formatCurrency } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
 import { formatQuantity } from './pos/pos-utils';
 import { SessionRequired, useCurrentSession } from './session-required';
+import { DocumentEmailDialog } from './document-email-dialog';
 
 export function InvoiceDetail({
   invoiceId,
@@ -25,12 +27,14 @@ export function InvoiceDetail({
 }) {
   const session = useCurrentSession();
   const invoiceQuery = useQuery({
-    queryKey: ['invoice', invoiceId, session?.tenantId],
-    queryFn: () => getInvoice(session?.tenantId ?? '', session?.accessToken ?? '', invoiceId),
+    queryKey: ['invoice', invoiceId, session?.tenantId, printMode ? 'receipt' : 'detail'],
+    queryFn: () =>
+      getInvoice(session?.tenantId ?? '', session?.accessToken ?? '', invoiceId, printMode),
     enabled: Boolean(session),
   });
   const invoice = invoiceQuery.data;
   const autoPrintTriggeredRef = useRef(false);
+  const [emailOpen, setEmailOpen] = useState(false);
 
   useEffect(() => {
     if (printMode && autoPrint && invoice && !autoPrintTriggeredRef.current) {
@@ -48,7 +52,9 @@ export function InvoiceDetail({
       <Card>
         <CardHeader>
           <CardTitle>Factura</CardTitle>
-          <CardDescription>Cargando datos desde PostgreSQL.</CardDescription>
+          <CardDescription role={invoiceQuery.isError ? 'alert' : undefined}>
+            {invoiceQuery.isError ? invoiceQuery.error.message : 'Cargando datos desde PostgreSQL.'}
+          </CardDescription>
         </CardHeader>
       </Card>
     );
@@ -58,10 +64,14 @@ export function InvoiceDetail({
     return (
       <main className="mx-auto w-[80mm] max-w-full bg-white p-3 text-zinc-950 print:w-[80mm] print:p-0">
         <Receipt invoice={invoice} copyLabel="ORIGINAL: CLIENTE" />
-        <div className="my-4 border-t-2 border-dashed border-zinc-500" />
-        <Receipt invoice={invoice} copyLabel="COPIA: VENDEDOR" />
-        <div className="mt-4 print:hidden">
-          <Button className="w-full" onClick={() => window.print()}>
+        <div className="mt-4 grid gap-2 print:hidden sm:grid-cols-2">
+          <Button asChild variant="outline">
+            <Link href="/pos">
+              <ArrowLeft className="h-4 w-4" />
+              Volver a Caja
+            </Link>
+          </Button>
+          <Button onClick={() => window.print()}>
             <Printer className="h-4 w-4" />
             Reimprimir factura
           </Button>
@@ -76,6 +86,11 @@ export function InvoiceDetail({
         title="Factura"
         description="Detalle persistido con items, pago, cajero y estado fiscal."
       />
+      {!['DRAFT', 'CANCELLED', 'VOID', 'VOIDED'].includes(invoice.status) ? (
+        <div className="flex justify-end">
+          <Button onClick={() => setEmailOpen(true)}><Mail className="h-4 w-4" />Enviar factura por email</Button>
+        </div>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>{invoice.invoiceNumber}</CardTitle>
@@ -87,6 +102,16 @@ export function InvoiceDetail({
           <Receipt invoice={invoice} copyLabel="VISTA PREVIA" />
         </CardContent>
       </Card>
+      <DocumentEmailDialog
+        open={emailOpen}
+        session={session}
+        kind="invoices"
+        documentId={invoice.id}
+        documentNumber={invoice.invoiceNumber}
+        customerName={invoice.customer?.name ?? 'Consumidor final'}
+        defaultEmail={invoice.customer?.email}
+        onClose={() => setEmailOpen(false)}
+      />
     </div>
   );
 }
@@ -103,6 +128,9 @@ function Receipt({
       ? Number(invoice.amountReceived)
       : Number(invoice.paidAmount);
   const changeAmount = Number(invoice.changeAmount ?? 0);
+  const completedPayments =
+    invoice.payments?.filter((payment) => payment.status === 'COMPLETED') ?? [];
+  const paymentMethods = new Set(completedPayments.map((payment) => payment.method));
   const subtotalBase = Number(invoice.subtotal);
   const fiscalNumber = invoice.ncf ?? invoice.eNcf ?? '-';
   const issuePoint = invoice.cashSession?.cashRegister;
@@ -209,7 +237,23 @@ function Receipt({
 
       <div className="space-y-0.5">
         <ReceiptRow label="Pagado" value={formatCurrency(Number(invoice.paidAmount))} />
-        <ReceiptRow label="Método" value={translatePaymentMethod(invoice.paymentMethod)} />
+        <ReceiptRow
+          label="Método"
+          value={
+            paymentMethods.size > 1
+              ? 'Pago combinado'
+              : translatePaymentMethod(invoice.paymentMethod ?? completedPayments[0]?.method)
+          }
+        />
+        {completedPayments.length > 1
+          ? completedPayments.map((payment) => (
+              <ReceiptRow
+                key={payment.id}
+                label={translatePaymentMethod(payment.method)}
+                value={formatCurrency(Number(payment.amount))}
+              />
+            ))
+          : null}
         <ReceiptRow label="Recibido" value={formatCurrency(amountReceived)} />
         <ReceiptRow label="Devuelta" value={formatCurrency(changeAmount)} strong />
         <ReceiptRow label="Balance" value={formatCurrency(Number(invoice.balance))} />

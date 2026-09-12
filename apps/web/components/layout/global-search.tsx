@@ -1,15 +1,15 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Package, Search, Users, X } from 'lucide-react';
+import { Car, FileText, Package, Search, Users, Wrench, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getCustomers, getInvoices, getProducts } from '@/lib/api';
+import { getCustomers, getInvoices, getProducts, getWorkshopTickets, getWorkshopVehicles } from '@/lib/api';
 import type { AuthSession } from '@/lib/auth-session';
-import { isAccountantSession, isAdminSession } from '@/lib/authorization';
+import { canAccessPath, isAccountantSession, isAdminSession } from '@/lib/authorization';
 import { translateDocumentType, translateStatus } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -18,13 +18,15 @@ type SearchResult = {
   title: string;
   subtitle: string;
   href: string;
-  type: 'product' | 'customer' | 'invoice';
+  type: 'product' | 'customer' | 'invoice' | 'vehicle' | 'workOrder';
 };
 
 const resultIcons = {
   product: Package,
   customer: Users,
   invoice: FileText,
+  vehicle: Car,
+  workOrder: Wrench,
 };
 
 export function GlobalSearch({ session }: { session: AuthSession }) {
@@ -54,6 +56,16 @@ export function GlobalSearch({ session }: { session: AuthSession }) {
     queryKey: ['global-search-invoices', session.tenantId],
     queryFn: () => getInvoices(session.tenantId, session.accessToken),
     enabled: searchReady,
+  });
+  const vehiclesQuery = useQuery({
+    queryKey: ['global-search-workshop-vehicles', session.tenantId],
+    queryFn: () => getWorkshopVehicles(session.tenantId, session.accessToken),
+    enabled: searchReady && canAccessPath(session, '/workshop/vehicles'),
+  });
+  const workOrdersQuery = useQuery({
+    queryKey: ['global-search-workshop-tickets', session.tenantId],
+    queryFn: () => getWorkshopTickets(session.tenantId, session.accessToken),
+    enabled: searchReady && canAccessPath(session, '/workshop'),
   });
 
   const results = useMemo(() => {
@@ -116,8 +128,37 @@ export function GlobalSearch({ session }: { session: AuthSession }) {
         href: `/invoices/${invoice.id}`,
       }));
 
-    return [...invoices, ...products, ...customers].slice(0, 8);
-  }, [customersQuery.data, debouncedSearch, invoicesQuery.data, productsQuery.data, searchReady]);
+    const vehicles: SearchResult[] = (vehiclesQuery.data ?? [])
+      .filter((vehicle) =>
+        [vehicle.licensePlate, vehicle.make, vehicle.model, vehicle.vin, vehicle.customer.name]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
+      )
+      .slice(0, 4)
+      .map((vehicle) => ({
+        id: `vehicle-${vehicle.id}`,
+        type: 'vehicle',
+        title: vehicle.licensePlate ?? `${vehicle.make} ${vehicle.model}`,
+        subtitle: `${vehicle.make} ${vehicle.model}${vehicle.year ? ` ${vehicle.year}` : ''} · ${vehicle.customer.name}`,
+        href: '/workshop/vehicles',
+      }));
+    const workOrders: SearchResult[] = (workOrdersQuery.data ?? [])
+      .filter((ticket) =>
+        [ticket.ticketNumber, ticket.vehicle.licensePlate, ticket.vehicle.make, ticket.vehicle.model, ticket.customer.name, ticket.customer.phone]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
+      )
+      .slice(0, 4)
+      .map((ticket) => ({
+        id: `work-order-${ticket.id}`,
+        type: 'workOrder',
+        title: ticket.ticketNumber,
+        subtitle: `${ticket.vehicle.licensePlate ?? 'Sin placa'} · ${ticket.customer.name}`,
+        href: `/workshop?ticket=${ticket.id}`,
+      }));
+
+    return [...workOrders, ...vehicles, ...invoices, ...customers, ...products].slice(0, 8);
+  }, [customersQuery.data, debouncedSearch, invoicesQuery.data, productsQuery.data, searchReady, vehiclesQuery.data, workOrdersQuery.data]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -157,7 +198,7 @@ export function GlobalSearch({ session }: { session: AuthSession }) {
     );
   }
 
-  const loading = productsQuery.isLoading || customersQuery.isLoading || invoicesQuery.isLoading;
+  const loading = productsQuery.isLoading || customersQuery.isLoading || invoicesQuery.isLoading || vehiclesQuery.isLoading || workOrdersQuery.isLoading;
 
   return (
     <form className="relative hidden min-w-0 max-w-md flex-1 md:block" onSubmit={handleSubmit}>
@@ -171,7 +212,7 @@ export function GlobalSearch({ session }: { session: AuthSession }) {
         onFocus={() => setOpen(true)}
         onBlur={() => window.setTimeout(() => setOpen(false), 120)}
         className="h-10 bg-zinc-50 pl-9 pr-10"
-        placeholder="Buscar cliente, producto o factura"
+        placeholder="Buscar cliente, vehículo, orden de trabajo o factura..."
         autoComplete="off"
       />
       {search ? (

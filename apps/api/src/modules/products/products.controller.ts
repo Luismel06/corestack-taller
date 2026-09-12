@@ -1,3 +1,5 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { requirePermissions } from '../../common/authorization';
 import {
   Body,
   Controller,
@@ -27,6 +29,7 @@ import type { UploadedProductImageFile } from './products.service';
 
 @Controller('products')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
+@RequirePermissions('inventory.view')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
@@ -47,17 +50,21 @@ export class ProductsController {
 
   @Post()
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions('products.manage')
   create(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateProductDto,
   ) {
+    if (dto.stock !== undefined && dto.stock !== 0)
+      requirePermissions(user, tenantId, 'inventory.adjust');
     return this.productsService.create(tenantId, user.id, dto);
   }
 
   @Post('image')
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
+  @RequirePermissions('products.manage')
   uploadImage(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -73,6 +80,7 @@ export class ProductsController {
 
   @Post(':id/generate-barcode')
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions('products.manage')
   generateBarcode(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -83,6 +91,7 @@ export class ProductsController {
 
   @Post(':id/label')
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions('products.manage')
   getLabel(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -93,17 +102,21 @@ export class ProductsController {
 
   @Patch(':id')
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
-  update(
+  @RequirePermissions('products.manage')
+  async update(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
   ) {
+    // Even an apparently unchanged value can overwrite a concurrent stock movement.
+    if (dto.stock !== undefined) requirePermissions(user, tenantId, 'inventory.adjust');
     return this.productsService.update(tenantId, user.id, id, dto);
   }
 
   @Delete(':id')
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions('products.manage')
   remove(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,

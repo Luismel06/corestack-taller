@@ -253,17 +253,45 @@ export class ProductsService {
       dto.price === undefined ? undefined : new Prisma.Decimal(dto.price).toDecimalPlaces(2);
     const nextCost =
       dto.cost === undefined ? undefined : new Prisma.Decimal(dto.cost).toDecimalPlaces(2);
-    const nextUnit = dto.unit ?? currentProduct.unit;
-    const nextStock = dto.stock ?? currentProduct.stock;
-    const nextMinStock = dto.minStock ?? currentProduct.minStock;
-    const shouldTrackInventory = dto.trackInventory ?? currentProduct.trackInventory;
-    const shouldCreateStockMovement =
-      dto.stock !== undefined && dto.stock !== currentProduct.stock && shouldTrackInventory;
-
-    this.ensureQuantityMatchesUnit(nextUnit, nextStock, 'stock');
-    this.ensureQuantityMatchesUnit(nextUnit, nextMinStock, 'stock minimo');
-
     const product = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "Product" WHERE "id" = ${id} AND "tenantId" = ${tenantId} FOR UPDATE
+      `;
+      if (locked.length !== 1) throw new NotFoundException('Product not found for tenant.');
+      const currentProduct = await tx.product.findUniqueOrThrow({ where: { id } });
+      const nextUnit = dto.unit ?? currentProduct.unit;
+      const nextStock = dto.stock ?? currentProduct.stock;
+      const nextMinStock = dto.minStock ?? currentProduct.minStock;
+      const shouldTrackInventory = dto.trackInventory ?? currentProduct.trackInventory;
+      const shouldCreateStockMovement =
+        dto.stock !== undefined &&
+        dto.stock !== currentProduct.stock &&
+        (shouldTrackInventory || currentProduct.trackInventory);
+      this.ensureQuantityMatchesUnit(nextUnit, nextStock, 'stock');
+      this.ensureQuantityMatchesUnit(nextUnit, nextMinStock, 'stock minimo');
+      if (nextStock < currentProduct.reservedStock) {
+        throw new BadRequestException(
+          'La existencia no puede quedar por debajo de las cantidades reservadas.',
+        );
+      }
+      if (
+        nextUnit !== currentProduct.unit ||
+        shouldTrackInventory !== currentProduct.trackInventory
+      ) {
+        const consumedInWorkshop = await tx.workshopTicketLine.findFirst({
+          where: {
+            productId: id,
+            consumedQuantity: { gt: 0 },
+            ticket: { tenantId, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
+          },
+          select: { id: true },
+        });
+        if (currentProduct.reservedStock > 0 || consumedInWorkshop) {
+          throw new BadRequestException(
+            'No cambies la unidad ni el control de inventario mientras el repuesto esté reservado o en una reparación abierta.',
+          );
+        }
+      }
       const updated = await tx.product.update({
         where: { id },
         data: {

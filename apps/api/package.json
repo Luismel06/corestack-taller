@@ -7,9 +7,11 @@
     "dev": "dotenv -e ../../.env -- nest start --watch",
     "start": "dotenv -e ../../.env -- node dist/main.js",
     "build": "nest build",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test:workshop": "pnpm build && dotenv -e ../../.env -- node --test test/workshop.integration.test.cjs"
   },
   "dependencies": {
+    "@qorvex/permissions": "workspace:*",
     "@nestjs/common": "^11.1.3",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.3",

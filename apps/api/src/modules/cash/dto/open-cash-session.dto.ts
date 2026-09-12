@@ -6,7 +6,7 @@ export class OpenCashSessionDto {
   cashRegisterId: string;
 
   @Type(() => Number)
-  @IsNumber()
-  @Min(0.01, { message: 'Opening amount must be greater than zero.' })
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0, { message: 'El monto inicial no puede ser negativo.' })
   openingAmount: number;
 }

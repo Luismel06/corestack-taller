@@ -20,6 +20,8 @@ import {
 import { randomUUID } from 'crypto';
 import { businessDateKey } from '../../common/utils/business-date';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { requireReceiptPricingPermission } from './receipt-permissions';
 import {
   CreateReceiptDto,
   ListReceiptsQueryDto,
@@ -368,9 +370,9 @@ export class ReceiptsService {
     return this.withQuantitySummary(receipt);
   }
 
-  async confirm(tenantId: string, userId: string, id: string) {
+  async confirm(tenantId: string, userId: string, id: string, user: AuthenticatedUser) {
     const receiptId = await this.runSerializable((tx) =>
-      this.confirmInTransaction(tx, tenantId, userId, id),
+      this.confirmInTransaction(tx, tenantId, userId, id, user),
     );
 
     // Leer el resultado fuera de la transaccion reduce el tiempo que se mantienen
@@ -383,8 +385,11 @@ export class ReceiptsService {
     tenantId: string,
     userId: string,
     id: string,
+    user?: AuthenticatedUser,
   ) {
     const current = await this.getReceiptForMutation(tx, tenantId, id);
+    // Revalidate persisted choices under the mutation lock, not just the controller read.
+    if (user) requireReceiptPricingPermission(user, tenantId, current.items);
     this.ensureDraft(current, 'confirmar');
     this.ensureInvoiceStatus(current.supplierInvoice.status);
     this.ensureReceiptPurchaseOrderCanReceive(current);

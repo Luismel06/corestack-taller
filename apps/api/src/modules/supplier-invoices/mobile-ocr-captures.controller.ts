@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@qorvex/database';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -29,6 +30,7 @@ export class MobileOcrCapturesController {
   @Post()
   @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
   @Roles(...accountingRoles)
+  @RequirePermissions('supplier_invoices.manage')
   create(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.mobileOcrCapturesService.create(tenantId, user.id);
   }
@@ -36,6 +38,7 @@ export class MobileOcrCapturesController {
   @Get(':id')
   @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
   @Roles(...accountingRoles)
+  @RequirePermissions('supplier_invoices.manage')
   getStatus(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -47,6 +50,7 @@ export class MobileOcrCapturesController {
   @Post(':id/consume')
   @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
   @Roles(...accountingRoles)
+  @RequirePermissions('supplier_invoices.manage')
   consume(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -58,6 +62,7 @@ export class MobileOcrCapturesController {
   @Post(':id/cancel')
   @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
   @Roles(...accountingRoles)
+  @RequirePermissions('supplier_invoices.manage')
   cancel(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,

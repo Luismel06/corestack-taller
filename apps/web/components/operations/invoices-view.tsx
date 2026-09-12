@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Printer, Search } from 'lucide-react';
+import { Eye, Mail, Printer, Search } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -16,18 +16,22 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getInvoices } from '@/lib/api';
+import { getInvoices, type Invoice } from '@/lib/api';
 import { brand } from '@/lib/brand';
+import { hasPermission } from '@/lib/authorization';
 import { getStatusVariant, translateStatus } from '@/lib/display-labels';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
+import { DocumentEmailDialog } from './document-email-dialog';
 
 export function InvoicesView() {
   const session = useCurrentSession();
+  const canPrint = hasPermission(session, 'invoices.reprint');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [periodFilter, setPeriodFilter] = useState('ALL');
+  const [emailTarget, setEmailTarget] = useState<Invoice | null>(null);
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search).get('q');
@@ -72,7 +76,8 @@ export function InvoicesView() {
       })
       .sort(
         (a, b) =>
-          new Date(b.issuedAt ?? b.createdAt).getTime() - new Date(a.issuedAt ?? a.createdAt).getTime(),
+          new Date(b.issuedAt ?? b.createdAt).getTime() -
+          new Date(a.issuedAt ?? a.createdAt).getTime(),
       );
   }, [invoicesQuery.data, periodFilter, search, statusFilter]);
   const total = filteredInvoices.reduce((sum, invoice) => sum + Number(invoice.total), 0);
@@ -153,7 +158,9 @@ export function InvoicesView() {
       <Card>
         <CardHeader>
           <CardTitle>Listado de facturas</CardTitle>
-          <CardDescription>Datos reales consultados por tenant, organizados por fecha.</CardDescription>
+          <CardDescription>
+            Datos reales consultados por tenant, organizados por fecha.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3 md:hidden">
@@ -166,17 +173,24 @@ export function InvoicesView() {
                       {invoice.customer?.name ?? 'Consumidor final'}
                     </p>
                   </div>
-                  <Badge variant={getStatusVariant(invoice.status)}>{translateStatus(invoice.status)}</Badge>
+                  <Badge variant={getStatusVariant(invoice.status)}>
+                    {translateStatus(invoice.status)}
+                  </Badge>
                 </div>
                 <div className="mt-3 flex items-center justify-between text-sm">
                   <span>{formatDate(invoice.issuedAt ?? invoice.createdAt)}</span>
                   <span className="font-semibold">{formatCurrency(Number(invoice.total))}</span>
                 </div>
-                <div className="mt-3 flex justify-end">
+                <div className="mt-3 flex justify-end gap-2">
+                  {!['DRAFT', 'CANCELLED', 'VOID', 'VOIDED'].includes(invoice.status) ? (
+                    <Button variant="outline" size="sm" onClick={() => setEmailTarget(invoice)}>
+                      <Mail className="h-4 w-4" />Enviar
+                    </Button>
+                  ) : null}
                   <Button asChild variant="outline" size="sm">
-                    <Link href={`/invoices/${invoice.id}/print`}>
-                      <Printer className="h-4 w-4" />
-                      Imprimir
+                    <Link href={`/invoices/${invoice.id}${canPrint ? '/print' : ''}`}>
+                      {canPrint ? <Printer className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {canPrint ? 'Imprimir' : 'Ver factura'}
                     </Link>
                   </Button>
                 </div>
@@ -186,46 +200,70 @@ export function InvoicesView() {
 
           <div className="hidden md:block">
             <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Numero</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredInvoices.map((invoice) => (
-                <TableRow key={invoice.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/invoices/${invoice.id}`} className="hover:underline">
-                      {invoice.invoiceNumber}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{invoice.customer?.name ?? 'Consumidor final'}</TableCell>
-                  <TableCell>{formatDate(invoice.issuedAt ?? invoice.createdAt)}</TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusVariant(invoice.status)}>{translateStatus(invoice.status)}</Badge>
-                  </TableCell>
-                  <TableCell>{invoice.items.length}</TableCell>
-                  <TableCell className="text-right">{formatCurrency(Number(invoice.total))}</TableCell>
-                  <TableCell className="text-right">
-                    <Button asChild variant="ghost" size="icon">
-                      <Link href={`/invoices/${invoice.id}/print`} aria-label="Imprimir factura">
-                        <Printer className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                  </TableCell>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Numero</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Items</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
+              </TableHeader>
+              <TableBody>
+                {filteredInvoices.map((invoice) => (
+                  <TableRow key={invoice.id}>
+                    <TableCell className="font-medium">
+                      <Link href={`/invoices/${invoice.id}`} className="hover:underline">
+                        {invoice.invoiceNumber}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{invoice.customer?.name ?? 'Consumidor final'}</TableCell>
+                    <TableCell>{formatDate(invoice.issuedAt ?? invoice.createdAt)}</TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusVariant(invoice.status)}>
+                        {translateStatus(invoice.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{invoice.items.length}</TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(Number(invoice.total))}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {!['DRAFT', 'CANCELLED', 'VOID', 'VOIDED'].includes(invoice.status) ? (
+                        <Button variant="ghost" size="icon" onClick={() => setEmailTarget(invoice)} aria-label="Enviar factura por email">
+                          <Mail className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                      <Button asChild variant="ghost" size="icon">
+                        <Link
+                          href={`/invoices/${invoice.id}${canPrint ? '/print' : ''}`}
+                          aria-label={canPrint ? 'Imprimir factura' : 'Ver factura'}
+                        >
+                          {canPrint ? <Printer className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
+      {emailTarget ? (
+        <DocumentEmailDialog
+          open
+          session={session}
+          kind="invoices"
+          documentId={emailTarget.id}
+          documentNumber={emailTarget.invoiceNumber}
+          customerName={emailTarget.customer?.name ?? 'Consumidor final'}
+          defaultEmail={emailTarget.customer?.email}
+          onClose={() => setEmailTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -248,15 +286,25 @@ function matchesPeriod(dateValue: string, period: string) {
 
   if (period === 'LAST_MONTH') {
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    return date.getFullYear() === lastMonth.getFullYear() && date.getMonth() === lastMonth.getMonth();
+    return (
+      date.getFullYear() === lastMonth.getFullYear() && date.getMonth() === lastMonth.getMonth()
+    );
   }
 
   if (period === 'FIRST_HALF') {
-    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() <= 15;
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() <= 15
+    );
   }
 
   if (period === 'SECOND_HALF') {
-    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() > 15;
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() > 15
+    );
   }
 
   return date.getFullYear() === now.getFullYear();

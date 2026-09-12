@@ -1,4 +1,5 @@
 'use client';
+import { hasPermission } from '@/lib/authorization';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CreditCard, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react';
@@ -27,10 +28,7 @@ import {
 } from '@/lib/api';
 import { brand } from '@/lib/brand';
 import { getStatusVariant, translateDocumentType, translateStatus } from '@/lib/display-labels';
-import {
-  normalizeDominicanDocument,
-  validateDominicanDocument,
-} from '@/lib/dominican-documents';
+import { normalizeDominicanDocument, validateDominicanDocument } from '@/lib/dominican-documents';
 import { formatDate } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -98,9 +96,7 @@ export function CustomersView() {
       if (form.documentType === 'RNC' || form.documentType === 'CEDULA') {
         if (!validateDominicanDocument(form.documentType, documentNumber)) {
           throw new Error(
-            form.documentType === 'RNC'
-              ? 'El RNC no es valido.'
-              : 'La cedula no es valida.',
+            form.documentType === 'RNC' ? 'El RNC no es valido.' : 'La cedula no es valida.',
           );
         }
 
@@ -202,7 +198,11 @@ export function CustomersView() {
     return <SessionRequired session={session} />;
   }
 
-  const readOnly = session.role === 'ACCOUNTANT';
+  const readOnly = !hasPermission(session, 'customers.manage');
+  const canAct =
+    !readOnly ||
+    hasPermission(session, 'customers.credit') ||
+    hasPermission(session, 'customers.archive');
 
   function openCreateForm() {
     setEditingCustomer(null);
@@ -247,8 +247,8 @@ export function CustomersView() {
   return (
     <div className="space-y-6">
       <ModuleHeader
-        title="Clientes"
-        description={`Clientes fiscales y comerciales de ${brand.name} cargados desde PostgreSQL.`}
+        title="Clientes y vehículos"
+        description={`Propietarios, datos fiscales y relación de vehículos de ${brand.name}.`}
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -264,7 +264,7 @@ export function CustomersView() {
         {!readOnly ? (
           <Button onClick={openCreateForm}>
             <Plus className="h-4 w-4" />
-            Nuevo cliente
+            Registrar propietario
           </Button>
         ) : null}
       </div>
@@ -274,8 +274,12 @@ export function CustomersView() {
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <CardTitle>{editingCustomer ? 'Editar cliente' : 'Nuevo cliente'}</CardTitle>
-                <CardDescription>Datos fiscales y contacto operativo del cliente.</CardDescription>
+                <CardTitle>
+                  {editingCustomer ? 'Editar propietario' : 'Registrar propietario'}
+                </CardTitle>
+                <CardDescription>
+                  Datos fiscales y contacto para sus vehículos y órdenes de trabajo.
+                </CardDescription>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={closeForm}>
                 <X className="h-4 w-4" />
@@ -369,7 +373,7 @@ export function CustomersView() {
         </Card>
       ) : null}
 
-      {creditCustomer && !readOnly ? (
+      {creditCustomer && hasPermission(session, 'customers.credit') ? (
         <Card className="border-sky-200">
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
@@ -485,7 +489,7 @@ export function CustomersView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Directorio</CardTitle>
+          <CardTitle>Propietarios registrados</CardTitle>
           <CardDescription>
             {filteredCustomers.length} registros visibles del tenant actual.
           </CardDescription>
@@ -530,13 +534,23 @@ export function CustomersView() {
                     })}
                   </p>
                 </div>
-                {!readOnly ? (
+                {canAct ? (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => openEditForm(customer)}>
+                    <Button
+                      disabled={readOnly}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openEditForm(customer)}
+                    >
                       <Pencil className="h-4 w-4" />
                       Editar
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => openCreditForm(customer)}>
+                    <Button
+                      disabled={!hasPermission(session, 'customers.credit')}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openCreditForm(customer)}
+                    >
                       <CreditCard className="h-4 w-4" />
                       Crédito
                     </Button>
@@ -544,6 +558,7 @@ export function CustomersView() {
                       size="sm"
                       variant="ghost"
                       onClick={() => deleteMutation.mutate(customer.id)}
+                      disabled={!hasPermission(session, 'customers.archive')}
                     >
                       <Trash2 className="h-4 w-4" />
                       Desactivar
@@ -558,13 +573,13 @@ export function CustomersView() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Cliente</TableHead>
+                  <TableHead>Propietario</TableHead>
                   <TableHead>Documento</TableHead>
                   <TableHead>Contacto</TableHead>
                   <TableHead>Crédito</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Creado</TableHead>
-                  {!readOnly ? <TableHead className="text-right">Acciones</TableHead> : null}
+                  {canAct ? <TableHead className="text-right">Acciones</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -612,13 +627,14 @@ export function CustomersView() {
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDate(customer.createdAt)}</TableCell>
-                    {!readOnly ? (
+                    {canAct ? (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
                           <Button
                             size="icon"
                             variant="ghost"
                             onClick={() => openEditForm(customer)}
+                            disabled={readOnly}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -626,6 +642,7 @@ export function CustomersView() {
                             size="icon"
                             variant="ghost"
                             title="Configurar crédito"
+                            disabled={!hasPermission(session, 'customers.credit')}
                             onClick={() => openCreditForm(customer)}
                           >
                             <CreditCard className="h-4 w-4" />
@@ -634,6 +651,7 @@ export function CustomersView() {
                             size="icon"
                             variant="ghost"
                             onClick={() => deleteMutation.mutate(customer.id)}
+                            disabled={!hasPermission(session, 'customers.archive')}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>

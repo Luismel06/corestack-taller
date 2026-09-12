@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: brand.name,
   description: `${brand.descriptor}. Operación, facturación e inventario.`,
   icons: {
-    icon: [{ url: brand.faviconPath, type: 'image/png' }],
+    icon: [{ url: brand.faviconPath, type: 'image/svg+xml' }],
     shortcut: brand.faviconPath,
     apple: brand.faviconPath,
   },

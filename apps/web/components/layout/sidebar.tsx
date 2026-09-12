@@ -2,9 +2,10 @@
 
 import {
   Activity,
+  Building2,
   BadgeDollarSign,
-  Barcode,
-  Boxes,
+  CalendarDays,
+  Car,
   ChevronDown,
   ChevronRight,
   ClipboardList,
@@ -22,18 +23,27 @@ import {
   Settings,
   ShoppingCart,
   Users,
+  Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { getSession, type AuthSession } from '@/lib/auth-session';
-import { canTakeOrders, isAccountantSession, isAdminSession } from '@/lib/authorization';
+import type { AuthSession } from '@/lib/auth-session';
+import { useCurrentSession } from '@/components/operations/session-required';
+import { canAccessPath } from '@/lib/authorization';
 import { brand, platform } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 
-type NavigationSectionId = 'main' | 'accounting' | 'secondary' | 'logs' | 'settings';
-type NavigationGroupId = 'accounting' | 'logs';
+type NavigationSectionId =
+  | 'main'
+  | 'workshop'
+  | 'customers'
+  | 'inventory'
+  | 'accounting'
+  | 'logs'
+  | 'settings';
+type NavigationGroupId = Exclude<NavigationSectionId, 'main'>;
 
 export type NavigationItem = {
   name: string;
@@ -52,65 +62,58 @@ type NavigationSection = {
 
 const sectionDefinitions: Array<Pick<NavigationSection, 'id' | 'label' | 'icon'>> = [
   { id: 'main' },
-  { id: 'accounting', label: 'Contable', icon: Landmark },
-  { id: 'secondary' },
-  { id: 'logs', label: 'Logs', icon: ScrollText },
-  { id: 'settings' },
+  { id: 'workshop' },
+  { id: 'customers', label: 'Clientes y vehículos', icon: Users },
+  { id: 'inventory', label: 'Inventario y compras', icon: Package },
+  { id: 'accounting', label: 'Gestión financiera', icon: Landmark },
+  { id: 'logs', label: 'Reportes y control', icon: Activity },
+  { id: 'settings', label: 'Administración', icon: Settings },
 ];
 
 export const navigation: NavigationItem[] = [
-  { name: 'Panel', href: '/dashboard', icon: LayoutDashboard, section: 'main' },
-  { name: 'Caja POS', href: '/pos', icon: ShoppingCart, primary: true, section: 'main' },
-  {
-    name: 'Toma de órdenes',
-    href: '/orders',
-    icon: ClipboardPlus,
-    primary: true,
-    section: 'main',
-  },
-  { name: 'Cotizaciones', href: '/quotations', icon: FileText, section: 'main' },
-  { name: 'Productos', href: '/products', icon: Package, section: 'main' },
-  { name: 'Códigos de barras', href: '/barcodes', icon: Barcode, section: 'main' },
-  { name: 'Clientes', href: '/customers', icon: Users, section: 'main' },
-  { name: 'Facturas', href: '/invoices', icon: FileText, primary: true, section: 'main' },
-  { name: 'Devoluciones', href: '/returns', icon: RotateCcw, primary: true, section: 'main' },
-  {
-    name: 'Órdenes de compra',
-    href: '/purchase-orders',
-    icon: ClipboardList,
-    section: 'accounting',
-  },
+  { name: 'Panel operativo', href: '/dashboard', icon: LayoutDashboard, section: 'main' },
+  { name: 'Agenda', href: '/workshop/agenda', icon: CalendarDays, section: 'workshop' },
+  { name: 'Órdenes de trabajo', href: '/workshop', icon: Wrench, section: 'workshop' },
+  { name: 'Cotizaciones', href: '/quotations', icon: FileText, section: 'workshop' },
+  { name: 'Clientes', href: '/customers', icon: Users, section: 'customers' },
+  { name: 'Vehículos', href: '/workshop/vehicles', icon: Car, section: 'customers' },
+  { name: 'Repuestos e inventario', href: '/products', icon: Package, section: 'inventory' },
+  { name: 'Suplidores', href: '/suppliers', icon: Users, section: 'inventory' },
+  { name: 'Compras', href: '/purchase-orders', icon: ClipboardPlus, section: 'inventory' },
   {
     name: 'Facturas de suplidores',
     href: '/supplier-invoices',
     icon: FileText,
+    section: 'inventory',
+  },
+  { name: 'POS y Caja', href: '/pos', icon: ShoppingCart, section: 'accounting' },
+  { name: 'Facturación', href: '/invoices', icon: FileText, section: 'accounting' },
+  { name: 'Cuentas por cobrar', href: '/receivables', icon: FileText, section: 'accounting' },
+  {
+    name: 'Aprobaciones de crédito',
+    href: '/credit-approvals',
+    icon: BadgeDollarSign,
     section: 'accounting',
   },
   { name: 'Cuentas por pagar', href: '/payables', icon: ScrollText, section: 'accounting' },
-  { name: 'Cuentas por cobrar', href: '/receivables', icon: FileText, section: 'accounting' },
+  { name: 'Devoluciones', href: '/returns', icon: RotateCcw, section: 'accounting' },
   {
     name: 'Secuencias fiscales',
     href: '/settings/fiscal-sequences',
     icon: ScrollText,
     section: 'accounting',
   },
-  { name: 'Suplidores', href: '/suppliers', icon: Users, section: 'secondary' },
-  { name: 'Almacén', href: '/warehouse', icon: Boxes, section: 'secondary' },
-  {
-    name: 'Aprobaciones de crédito',
-    href: '/credit-approvals',
-    icon: BadgeDollarSign,
-    section: 'secondary',
-  },
-  { name: 'Empleados', href: '/employees', icon: Users, section: 'secondary' },
-  { name: 'Logs operativos', href: '/operations/logs', icon: Activity, section: 'logs' },
+  { name: 'Reportes', href: '/dashboard/productos-vendidos', icon: Activity, section: 'logs' },
+  { name: 'Sesiones de caja', href: '/cash/sessions', icon: ScrollText, section: 'logs' },
   { name: 'Movimiento de caja', href: '/cash/logs', icon: ClipboardList, section: 'logs' },
-  { name: 'Sesiones', href: '/cash/sessions', icon: ScrollText, section: 'logs' },
+  { name: 'Logs operativos', href: '/operations/logs', icon: Activity, section: 'logs' },
+  { name: 'Empleados y mecánicos', href: '/employees', icon: Users, section: 'settings' },
+  { name: 'Servicios', href: '/workshop/services', icon: Wrench, section: 'settings' },
+  { name: 'Bahías', href: '/workshop/bays', icon: Building2, section: 'settings' },
   { name: 'Cajas', href: '/cash/registers', icon: Landmark, section: 'settings' },
   { name: 'Importaciones', href: '/settings/imports', icon: FileUp, section: 'settings' },
   { name: 'Configuración', href: '/settings', icon: Settings, section: 'settings' },
 ];
-
 export function Sidebar({
   collapsed = false,
   onToggle,
@@ -142,13 +145,15 @@ export function SidebarContent({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const session = getSession();
+  const session = useCurrentSession();
   const sections = getNavigationSections(session);
   const [activeGroup, setActiveGroup] = useState<NavigationGroupId | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Record<NavigationGroupId, boolean>>({
-    accounting: false,
-    logs: false,
-  });
+  const [expandedGroups, setExpandedGroups] = useState<Partial<Record<NavigationGroupId, boolean>>>(
+    {
+      accounting: false,
+      logs: false,
+    },
+  );
 
   useEffect(() => {
     setActiveGroup(null);
@@ -157,16 +162,14 @@ export function SidebarContent({
   useEffect(() => {
     const activeSection = sections.find(
       (section) =>
-        (section.id === 'accounting' || section.id === 'logs') &&
+        section.id !== 'main' &&
         section.items.some((item) => isNavigationItemActive(pathname, item)),
     );
 
     if (!activeSection) return;
 
     const groupId = activeSection.id as NavigationGroupId;
-    setExpandedGroups((current) =>
-      current[groupId] ? current : { ...current, [groupId]: true },
-    );
+    setExpandedGroups({ [groupId]: true });
   }, [pathname]);
 
   return (
@@ -198,7 +201,11 @@ export function SidebarContent({
             aria-label={collapsed ? 'Desplegar menú' : 'Contraer menú'}
             title={collapsed ? 'Desplegar menú' : undefined}
           >
-            {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+            {collapsed ? (
+              <PanelLeftOpen className="h-5 w-5" />
+            ) : (
+              <PanelLeftClose className="h-5 w-5" />
+            )}
             <span className={cn(collapsed && 'hidden')}>Contraer menú</span>
           </button>
         </div>
@@ -219,15 +226,12 @@ export function SidebarContent({
                   collapsed={collapsed}
                   pathname={pathname}
                   isOpen={activeGroup === section.id}
-                  isExpanded={expandedGroups[section.id as NavigationGroupId]}
+                  isExpanded={Boolean(expandedGroups[section.id as NavigationGroupId])}
                   onOpenChange={(open) =>
                     setActiveGroup(open ? (section.id as NavigationGroupId) : null)
                   }
                   onExpandedChange={(expanded) =>
-                    setExpandedGroups((current) => ({
-                      ...current,
-                      [section.id as NavigationGroupId]: expanded,
-                    }))
+                    setExpandedGroups(expanded ? { [section.id]: true } : {})
                   }
                   onNavigate={onNavigate}
                 />
@@ -250,8 +254,18 @@ export function SidebarContent({
       </nav>
 
       <div className={cn('shrink-0 border-t border-slate-800 p-4', collapsed && 'px-3')}>
-        <div className={cn('rounded-lg border border-slate-800 bg-slate-900/80 p-3', collapsed && 'px-2.5')}>
-          <div className={cn('flex items-center gap-2 text-sm font-medium', collapsed && 'justify-center')}>
+        <div
+          className={cn(
+            'rounded-lg border border-slate-800 bg-slate-900/80 p-3',
+            collapsed && 'px-2.5',
+          )}
+        >
+          <div
+            className={cn(
+              'flex items-center gap-2 text-sm font-medium',
+              collapsed && 'justify-center',
+            )}
+          >
             <img src={platform.logoPath} alt="" className="h-5 w-5 rounded object-cover" />
             <span className={cn(collapsed && 'hidden')}>{platform.name}</span>
           </div>
@@ -294,7 +308,7 @@ function SidebarNavigationGroup({
           onClick={() => onExpandedChange(!isExpanded)}
           className={cn(
             'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
-            (isActive || isExpanded) && 'bg-white/[0.08] text-white',
+            (isActive || isExpanded) && 'bg-blue-600/20 text-blue-100',
           )}
           aria-expanded={isExpanded}
           aria-controls={`sidebar-section-${section.id}`}
@@ -312,7 +326,7 @@ function SidebarNavigationGroup({
             isExpanded ? 'mt-1 grid-rows-[1fr]' : 'grid-rows-[0fr]',
           )}
         >
-          <div className="overflow-hidden">
+          <div className="overflow-hidden" inert={!isExpanded}>
             <div className="ml-5 space-y-1">
               {section.items.map((item) => (
                 <SidebarNavigationLink
@@ -352,7 +366,7 @@ function SidebarNavigationGroup({
         onClick={() => onOpenChange(!isOpen)}
         className={cn(
           'flex w-full items-center justify-center rounded-lg p-2.5 text-slate-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
-          isActive && 'bg-white/[0.12] text-white shadow-sm',
+          isActive && 'bg-blue-600/25 text-blue-100 shadow-sm',
         )}
         aria-expanded={isOpen}
         aria-label={`${section.label}: mostrar opciones`}
@@ -407,18 +421,13 @@ function SidebarNavigationLink({
         'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
         collapsed && 'justify-center px-2.5',
         isActive
-          ? 'bg-white/[0.13] text-white shadow-sm'
+          ? 'bg-blue-600/25 text-blue-100 shadow-sm ring-1 ring-blue-400/20'
           : 'text-slate-300 hover:bg-white/[0.08] hover:text-white',
       )}
       title={collapsed ? item.name : undefined}
       aria-current={isActive ? 'page' : undefined}
     >
-      <Icon
-        className={cn(
-          'h-5 w-5 shrink-0',
-          isActive && 'text-white',
-        )}
-      />
+      <Icon className={cn('h-5 w-5 shrink-0', isActive && 'text-white')} />
       <span className={cn('min-w-0 truncate', collapsed && 'hidden')}>{item.name}</span>
     </Link>
   );
@@ -426,7 +435,7 @@ function SidebarNavigationLink({
 
 export function MobileNavigation() {
   const pathname = usePathname();
-  const session = getSession();
+  const session = useCurrentSession();
   const sections = getNavigationSections(session);
   const visibleNavigation = sections.flatMap((section) => section.items);
   const quickNavigation = getMobileQuickNavigation(visibleNavigation);
@@ -436,16 +445,18 @@ export function MobileNavigation() {
   const quickNavigationIds = new Set(quickNavigation.map((item) => item.href));
   const moreNavigation = visibleNavigation.filter(
     (item) =>
-      !quickNavigationIds.has(item.href) && item.section !== 'accounting' && item.section !== 'logs',
+      !quickNavigationIds.has(item.href) &&
+      item.section !== 'accounting' &&
+      item.section !== 'logs',
   );
   const popoverItems =
     activePopover === 'more'
       ? moreNavigation
-      : sections.find((section) => section.id === activePopover)?.items ?? [];
+      : (sections.find((section) => section.id === activePopover)?.items ?? []);
   const popoverTitle =
     activePopover === 'more'
       ? 'Más opciones'
-      : sections.find((section) => section.id === activePopover)?.label ?? '';
+      : (sections.find((section) => section.id === activePopover)?.label ?? '');
 
   useEffect(() => {
     setActivePopover(null);
@@ -539,7 +550,9 @@ export function MobileNavigation() {
             <MobilePopoverTrigger
               label={accountingSection.label ?? 'Contable'}
               icon={accountingSection.icon ?? Landmark}
-              active={accountingSection.items.some((item) => isNavigationItemActive(pathname, item))}
+              active={accountingSection.items.some((item) =>
+                isNavigationItemActive(pathname, item),
+              )}
               open={activePopover === 'accounting'}
               onClick={() =>
                 setActivePopover((current) => (current === 'accounting' ? null : 'accounting'))
@@ -610,50 +623,11 @@ export function getNavigationSections(session: AuthSession | null): NavigationSe
 }
 
 export function getVisibleNavigation(session: AuthSession | null) {
-  if (isAccountantSession(session)) {
-    const accountantPaths = new Set([
-      '/dashboard',
-      '/products',
-      '/customers',
-      '/invoices',
-      '/suppliers',
-      '/warehouse',
-      '/purchase-orders',
-      '/supplier-invoices',
-      '/payables',
-      '/receivables',
-      '/credit-approvals',
-      '/cash/logs',
-      '/cash/sessions',
-      '/operations/logs',
-    ]);
-
-    return navigation.filter((item) => accountantPaths.has(item.href));
+  if (session?.role === 'ORDER_TAKER') {
+    return navigation.filter((item) => item.href === '/workshop/agenda' && canAccessPath(session, item.href));
   }
-
-  if (isAdminSession(session)) {
-    if (session?.role === 'ADMIN') {
-      return navigation.filter((item) => item.href !== '/pos');
-    }
-
-    return navigation;
-  }
-
-  if (canTakeOrders(session) && session?.permissions.canUsePos) {
-    return navigation.filter(
-      (item) => item.href === '/orders' || item.href === '/pos' || item.href === '/returns',
-    );
-  }
-
-  if (canTakeOrders(session)) {
-    return navigation.filter((item) => item.href === '/orders');
-  }
-
-  if (session?.permissions.canUsePos) {
-    return navigation.filter((item) => item.href === '/pos' || item.href === '/returns');
-  }
-
-  return [];
+  if (session?.role === 'MECHANIC') return [];
+  return navigation.filter((item) => canAccessPath(session, item.href));
 }
 
 function getMobileQuickNavigation(items: NavigationItem[]) {
@@ -676,6 +650,7 @@ function getMobileQuickNavigation(items: NavigationItem[]) {
 }
 
 function isNavigationItemActive(pathname: string, item: NavigationItem) {
+  if (item.href === '/dashboard' || item.href === '/workshop') return pathname === item.href;
   if (item.href === '/settings') return pathname === item.href;
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }

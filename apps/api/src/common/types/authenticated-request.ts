@@ -5,6 +5,7 @@ export type AuthenticatedMembership = {
   tenantId: string;
   role: Role;
   status: MembershipStatus;
+  permissionOverrides?: unknown;
   canUsePos: boolean;
   canOpenCashSession: boolean;
   canCloseCashSession: boolean;

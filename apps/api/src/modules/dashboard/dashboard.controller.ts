@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { Role } from '@qorvex/database';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -10,6 +11,7 @@ import { DashboardService } from './dashboard.service';
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
 @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN, Role.ACCOUNTANT)
+@RequirePermissions('reports.financial')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 

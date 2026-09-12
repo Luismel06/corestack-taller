@@ -17,17 +17,14 @@ import {
 } from '@/components/ui/table';
 import {
   getPayablesSummary,
-  getSupplierInvoices,
+  getPayableInvoices,
   getSuppliers,
   type SupplierInvoiceStatus,
 } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { hasPermission } from '@/lib/authorization';
 import { ModuleHeader } from './module-header';
-import {
-  ProcurementStatusBadge,
-  QueryState,
-  selectClassName,
-} from './procurement-ui';
+import { ProcurementStatusBadge, QueryState, selectClassName } from './procurement-ui';
 import { SessionRequired, useCurrentSession } from './session-required';
 
 export function PayablesView() {
@@ -38,13 +35,17 @@ export function PayablesView() {
   const summaryQuery = useQuery({
     queryKey: ['payables', 'summary', session?.tenantId, supplierId],
     queryFn: () =>
-      getPayablesSummary(session?.tenantId ?? '', session?.accessToken ?? '', supplierId || undefined),
+      getPayablesSummary(
+        session?.tenantId ?? '',
+        session?.accessToken ?? '',
+        supplierId || undefined,
+      ),
     enabled: Boolean(session),
   });
   const invoicesQuery = useQuery({
     queryKey: ['payables', 'invoices', session?.tenantId, supplierId, search, invoiceFilter],
     queryFn: () =>
-      getSupplierInvoices(session?.tenantId ?? '', session?.accessToken ?? '', {
+      getPayableInvoices(session?.tenantId ?? '', session?.accessToken ?? '', {
         supplierId: supplierId || undefined,
         q: search,
         status: invoiceFilter === 'PAID' ? ('PAID' as SupplierInvoiceStatus) : undefined,
@@ -54,11 +55,26 @@ export function PayablesView() {
   const suppliersQuery = useQuery({
     queryKey: ['suppliers', session?.tenantId, 'payables'],
     queryFn: () => getSuppliers(session?.tenantId ?? '', session?.accessToken ?? ''),
-    enabled: Boolean(session),
+    enabled: hasPermission(session, 'suppliers.view'),
   });
 
   if (!session) return <SessionRequired session={session} />;
 
+  const canOpenInvoices = hasPermission(session, 'supplier_invoices.view');
+  const canPay = canOpenInvoices && hasPermission(session, 'payables.pay');
+  const suppliers =
+    suppliersQuery.data ??
+    Array.from(
+      new Map(
+        (invoicesQuery.data ?? []).map((invoice) => [
+          invoice.supplierId,
+          {
+            id: invoice.supplierId,
+            commercialName: invoice.supplierNameSnapshot,
+          },
+        ]),
+      ).values(),
+    );
   const invoices = (invoicesQuery.data ?? []).filter((invoice) => {
     if (invoiceFilter === 'OPEN') {
       return ['PENDING', 'PARTIALLY_PAID'].includes(invoice.status);
@@ -92,9 +108,11 @@ export function PayablesView() {
           title="Cuentas por pagar"
           description="Compromisos con suplidores ordenados por vencimiento y saldo pendiente."
         />
-        <Button asChild>
-          <Link href="/supplier-invoices">Registrar factura o pago</Link>
-        </Button>
+        {canOpenInvoices ? (
+          <Button asChild>
+            <Link href="/supplier-invoices">Ver facturas de suplidores</Link>
+          </Button>
+        ) : null}
       </div>
 
       <QueryState loading={summaryQuery.isLoading} error={summaryQuery.error} />
@@ -144,7 +162,7 @@ export function PayablesView() {
             onChange={(event) => setSupplierId(event.target.value)}
           >
             <option value="">Todos los suplidores</option>
-            {suppliersQuery.data?.map((supplier) => (
+            {suppliers.map((supplier) => (
               <option key={supplier.id} value={supplier.id}>
                 {supplier.commercialName}
               </option>
@@ -217,10 +235,14 @@ export function PayablesView() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button asChild variant="outline" size="sm">
-                            <Link href={`/supplier-invoices/${invoice.id}/print`}>Ver detalle</Link>
-                          </Button>
-                          {['PENDING', 'PARTIALLY_PAID'].includes(invoice.status) ? (
+                          {canOpenInvoices ? (
+                            <Button asChild variant="outline" size="sm">
+                              <Link href={`/supplier-invoices/${invoice.id}/print`}>
+                                Ver detalle
+                              </Link>
+                            </Button>
+                          ) : null}
+                          {canPay && ['PENDING', 'PARTIALLY_PAID'].includes(invoice.status) ? (
                             <Button asChild size="sm">
                               <Link href={`/supplier-invoices?invoiceId=${invoice.id}`}>Pagar</Link>
                             </Button>
@@ -239,7 +261,9 @@ export function PayablesView() {
       <Card>
         <CardHeader>
           <CardTitle>Resumen por suplidor</CardTitle>
-          <CardDescription>Deuda consolidada para conciliación y planificación de pagos.</CardDescription>
+          <CardDescription>
+            Deuda consolidada para conciliación y planificación de pagos.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <QueryState
@@ -258,9 +282,7 @@ export function PayablesView() {
                         {supplier.invoiceCount} factura(s) abierta(s)
                       </p>
                     </div>
-                    {supplier.overdueCount ? (
-                      <ProcurementStatusBadge status="OVERDUE" />
-                    ) : null}
+                    {supplier.overdueCount ? <ProcurementStatusBadge status="OVERDUE" /> : null}
                   </div>
                   <p className="mt-4 text-xl font-semibold">
                     {formatCurrency(Number(supplier.outstandingBalance))}
@@ -302,7 +324,11 @@ function MetricCard({
           {icon ? <span className="[&>svg]:h-4 [&>svg]:w-4">{icon}</span> : null}
           {label}
         </div>
-        <p className={danger ? 'mt-2 text-2xl font-semibold text-danger' : 'mt-2 text-2xl font-semibold'}>
+        <p
+          className={
+            danger ? 'mt-2 text-2xl font-semibold text-danger' : 'mt-2 text-2xl font-semibold'
+          }
+        >
           {value}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">{detail}</p>

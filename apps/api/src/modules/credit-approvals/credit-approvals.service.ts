@@ -1,3 +1,4 @@
+import { requirePermissions } from '../../common/authorization';
 import {
   BadRequestException,
   ConflictException,
@@ -11,21 +12,12 @@ import {
   CustomerStatus,
   InvoiceStatus,
   Prisma,
-  Role,
   SalePaymentMode,
   SalesOrderStatus,
 } from '@qorvex/database';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ApproveCreditSaleDto, RejectCreditSaleDto } from './dto/credit-approval.dto';
-
-const accountingRoles: Role[] = [
-  Role.ACCOUNTANT,
-  Role.ADMIN,
-  Role.SUPER_ADMIN,
-  Role.QORVEX_SUPER_ADMIN,
-];
-const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
 
 const approvalInclude = {
   customer: true,
@@ -63,6 +55,7 @@ export class CreditApprovalsService {
 
   async approve(tenantId: string, user: AuthenticatedUser, id: string, dto: ApproveCreditSaleDto) {
     this.requireAdmin(tenantId, user);
+    if (dto.authorizeLimitExcess) requirePermissions(user, tenantId, 'credit.override_limit');
 
     const result = await this.prisma.$transaction(
       async (tx) => {
@@ -445,25 +438,11 @@ export class CreditApprovalsService {
   }
 
   private requireAccountingAccess(tenantId: string, user: AuthenticatedUser) {
-    const role = this.getRole(tenantId, user);
-    if (!role || !accountingRoles.includes(role)) {
-      throw new ForbiddenException('Credit approval access is required.');
-    }
+    requirePermissions(user, tenantId, 'credit.view');
   }
 
   private requireAdmin(tenantId: string, user: AuthenticatedUser) {
-    const role = this.getRole(tenantId, user);
-    if (!role || !adminRoles.includes(role)) {
-      throw new ForbiddenException('Administrator approval is required.');
-    }
-  }
-
-  private getRole(tenantId: string, user: AuthenticatedUser) {
-    return (
-      user.memberships.find((membership) =>
-        ([Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN] as Role[]).includes(membership.role),
-      )?.role ?? user.memberships.find((membership) => membership.tenantId === tenantId)?.role
-    );
+    requirePermissions(user, tenantId, 'credit.view', 'credit.approve');
   }
 
   private parseStatus(value: string) {

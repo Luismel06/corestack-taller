@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@qorvex/database';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -14,6 +15,7 @@ import {
   UpdateReceiptDto,
 } from './dto/receipt.dto';
 import { ReceiptsService } from './receipts.service';
+import { requireReceiptPricingPermission } from './receipt-permissions';
 
 const receiptRoles: Role[] = [
   Role.ACCOUNTANT,
@@ -26,6 +28,7 @@ const receiptAdminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUP
 @Controller('receipts')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
 @Roles(...receiptRoles)
+@RequirePermissions('inventory.view')
 export class ReceiptsController {
   constructor(private readonly receiptsService: ReceiptsService) {}
 
@@ -35,11 +38,13 @@ export class ReceiptsController {
   }
 
   @Post()
+  @RequirePermissions('inventory.receive')
   create(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateReceiptDto,
   ) {
+    requireReceiptPricingPermission(user, tenantId, dto.items);
     return this.receiptsService.create(tenantId, user.id, dto);
   }
 
@@ -49,26 +54,32 @@ export class ReceiptsController {
   }
 
   @Patch(':id')
+  @RequirePermissions('inventory.receive')
   update(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateReceiptDto,
   ) {
+    requireReceiptPricingPermission(user, tenantId, dto.items);
     return this.receiptsService.update(tenantId, user.id, id, dto);
   }
 
   @Post(':id/confirm')
-  confirm(
+  @RequirePermissions('inventory.receive')
+  async confirm(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    return this.receiptsService.confirm(tenantId, user.id, id);
+    const receipt = await this.receiptsService.findOne(tenantId, id);
+    requireReceiptPricingPermission(user, tenantId, receipt.items);
+    return this.receiptsService.confirm(tenantId, user.id, id, user);
   }
 
   @Post(':id/cancel')
   @Roles(...receiptAdminRoles)
+  @RequirePermissions('inventory.reverse_receipt')
   cancel(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -80,6 +91,7 @@ export class ReceiptsController {
 
   @Post(':id/reverse')
   @Roles(...receiptAdminRoles)
+  @RequirePermissions('inventory.reverse_receipt')
   reverse(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,

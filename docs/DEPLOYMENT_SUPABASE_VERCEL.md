@@ -1,6 +1,8 @@
 # Despliegue temporal con Supabase PostgreSQL y Vercel
 
-Fecha de corte: 2026-06-21
+Revisión para la demo del taller: 2026-09-07.
+
+No hay un proyecto Supabase de destino confirmado todavía. Usar exclusivamente un proyecto nuevo para este taller. No reutilizar los proyectos de otros clientes. Para el estado y la copia de la base existente, consultar [Demo y migración](workshop-demo.md).
 
 Esta guia explica como ejecutar CoreStack usando Supabase solo como PostgreSQL gestionado y Vercel como plataforma temporal para web/API. La logica de negocio debe seguir en NestJS. El frontend debe seguir hablando con la API NestJS. No se usa Supabase Auth, Supabase REST ni acceso directo a tablas desde el frontend en esta fase.
 
@@ -35,14 +37,14 @@ Regla de mantenimiento:
 Valores publicos/no secretos:
 
 ```text
-Project Ref: ofiajrknxhtquctgrysr
-Project URL: https://ofiajrknxhtquctgrysr.supabase.co
-REST URL: https://ofiajrknxhtquctgrysr.supabase.co/rest/v1/
-JWKS URL: https://ofiajrknxhtquctgrysr.supabase.co/auth/v1/.well-known/jwks.json
-Database host directo: db.ofiajrknxhtquctgrysr.supabase.co
+Project Ref: YOUR_WORKSHOP_PROJECT
+Project URL: https://YOUR_WORKSHOP_PROJECT.supabase.co
+REST URL: https://YOUR_WORKSHOP_PROJECT.supabase.co/rest/v1/
+JWKS URL: https://YOUR_WORKSHOP_PROJECT.supabase.co/auth/v1/.well-known/jwks.json
+Database host directo: db.YOUR_WORKSHOP_PROJECT.supabase.co
 Database: postgres
 Database user: postgres
-Pooler host: aws-1-us-east-2.pooler.supabase.com
+Pooler host: YOUR_SESSION_POOLER_HOST
 ```
 
 No escribas la contrasena real en codigo, README, documentacion ni commits. Si la contrasena contiene `@`, en URLs PostgreSQL debe ir como `%40`.
@@ -52,8 +54,8 @@ No escribas la contrasena real en codigo, README, documentacion ni commits. Si l
 Configurar en `.env`, `.env.local`, `.env.production.local` o en Vercel Environment Variables:
 
 ```env
-DATABASE_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
-DIRECT_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
+DATABASE_URL="postgresql://postgres.YOUR_WORKSHOP_PROJECT:YOUR_URL_ENCODED_PASSWORD@YOUR_SESSION_POOLER_HOST:6543/postgres?pgbouncer=true&sslmode=require"
+DIRECT_URL="postgresql://postgres.YOUR_WORKSHOP_PROJECT:YOUR_URL_ENCODED_PASSWORD@YOUR_SESSION_POOLER_HOST:5432/postgres?sslmode=require"
 JWT_SECRET="replace-with-corestack-secret"
 JWT_EXPIRES_IN="8h"
 CORS_ORIGIN="http://localhost:3000,https://YOUR_FRONTEND_VERCEL_URL"
@@ -63,9 +65,9 @@ NODE_ENV="production"
 Opcionales para futuro, no usados para la logica principal actual:
 
 ```env
-SUPABASE_URL="https://ofiajrknxhtquctgrysr.supabase.co"
+SUPABASE_URL="https://YOUR_WORKSHOP_PROJECT.supabase.co"
 SUPABASE_SECRET_KEY="replace-with-secret-key"
-SUPABASE_JWKS_URL="https://ofiajrknxhtquctgrysr.supabase.co/auth/v1/.well-known/jwks.json"
+SUPABASE_JWKS_URL="https://YOUR_WORKSHOP_PROJECT.supabase.co/auth/v1/.well-known/jwks.json"
 ```
 
 Reglas:
@@ -99,13 +101,13 @@ La opción **Capturar con el teléfono** genera un QR temporal de 10 minutos. El
 `DATABASE_URL` usa el pooler transaction-mode y es la URL para runtime/serverless:
 
 ```env
-DATABASE_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
+DATABASE_URL="postgresql://postgres.YOUR_WORKSHOP_PROJECT:YOUR_URL_ENCODED_PASSWORD@YOUR_SESSION_POOLER_HOST:6543/postgres?pgbouncer=true&sslmode=require"
 ```
 
 `DIRECT_URL` se usa para migraciones Prisma:
 
 ```env
-DIRECT_URL="postgresql://postgres.ofiajrknxhtquctgrysr:YOUR_URL_ENCODED_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
+DIRECT_URL="postgresql://postgres.YOUR_WORKSHOP_PROJECT:YOUR_URL_ENCODED_PASSWORD@YOUR_SESSION_POOLER_HOST:5432/postgres?sslmode=require"
 ```
 
 Resumen:
@@ -144,7 +146,7 @@ No ejecutes seed contra Supabase real/produccion salvo que sea una base staging/
 
 ## 7. Seed
 
-El seed de desarrollo borra tablas y recrea datos demo de CoreStack/Ferreteria RIVNU. Ahora esta protegido:
+El seed heredado borra tablas y contiene ejemplos de clientes anteriores. NO debe usarse para esta demo ni para migrar. El cargador aditivo del taller se documenta en `docs/workshop-demo.md`. El guard del seed heredado con:
 
 ```text
 NODE_ENV=production
@@ -167,15 +169,15 @@ corepack pnpm install
 docker compose up -d
 corepack pnpm db:generate
 corepack pnpm db:migrate
-corepack pnpm db:seed
+## No ejecutar el seed heredado sobre datos existentes. Ver docs/workshop-demo.md.
 corepack pnpm dev
 ```
 
 Variables locales Docker:
 
 ```env
-DATABASE_URL="postgresql://corestack:corestack@localhost:5432/corestack?schema=public"
-DIRECT_URL="postgresql://corestack:corestack@localhost:5432/corestack?schema=public"
+DATABASE_URL="postgresql://corestack:corestack@localhost:5432/corestack_taller?schema=public"
+DIRECT_URL="postgresql://corestack:corestack@localhost:5432/corestack_taller?schema=public"
 NEXT_PUBLIC_API_URL="http://localhost:4000"
 # Para probar con un teléfono, reemplazar por una URL HTTPS pública temporal.
 NEXT_PUBLIC_APP_URL=""
@@ -274,7 +276,7 @@ Login:
 ```bash
 curl -X POST https://YOUR_API_VERCEL_URL/auth/login \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"admin@rivnu.local\",\"password\":\"DemoPassword123!\"}"
+  -d "{\"email\":\"YOUR_WORKSHOP_ADMIN_EMAIL\",\"password\":\"YOUR_WORKSHOP_PASSWORD\"}"
 ```
 
 Dashboard:

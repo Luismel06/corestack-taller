@@ -26,6 +26,8 @@ import {
   SalesOrderStatus,
 } from '@qorvex/database';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { requirePermissions } from '../../common/authorization';
+import { effectivePermissions } from '@qorvex/permissions';
 import {
   normalizeDominicanDocument,
   validateDominicanCedula,
@@ -128,7 +130,7 @@ export class OrdersService {
     tenantId: string,
     user: AuthenticatedUser,
     q: string,
-    inventorySource: ProductInventoryDestination = ProductInventoryDestination.SALES_INVENTORY,
+    _inventorySource: ProductInventoryDestination = ProductInventoryDestination.SALES_INVENTORY,
   ) {
     await this.ensureCanTakeOrders(tenantId, user);
     const query = q.trim();
@@ -140,7 +142,7 @@ export class OrdersService {
     return this.prisma.product.findMany({
       where: {
         tenantId,
-        inventoryDestination: inventorySource,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
@@ -159,14 +161,14 @@ export class OrdersService {
     tenantId: string,
     user: AuthenticatedUser,
     barcode: string,
-    inventorySource: ProductInventoryDestination = ProductInventoryDestination.SALES_INVENTORY,
+    _inventorySource: ProductInventoryDestination = ProductInventoryDestination.SALES_INVENTORY,
   ) {
     await this.ensureCanTakeOrders(tenantId, user);
     const lookupCandidates = getBarcodeLookupCandidates(barcode);
     const product = await this.prisma.product.findFirst({
       where: {
         tenantId,
-        inventoryDestination: inventorySource,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -194,7 +196,7 @@ export class OrdersService {
 
     const clientName = dto.clientName?.trim() || undefined;
     const destination = dto.destination ?? SalesOrderDestination.CASH_SALE;
-    const inventorySource = dto.inventorySource ?? ProductInventoryDestination.SALES_INVENTORY;
+    const inventorySource = ProductInventoryDestination.SALES_INVENTORY;
     const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
     const discountRate = this.getDiscountRate(priceLevel);
     const paymentMode = dto.paymentMode ?? SalePaymentMode.CASH;
@@ -568,9 +570,18 @@ export class OrdersService {
       }
 
       const cancellableStatuses =
+        // A workshop order is the immutable billing handoff of completed work.
+        // Releasing a cashier claim is allowed; cancelling must not erase the debt
+        // or silently return installed parts.
         order.status === SalesOrderStatus.QUOTATION
           ? [SalesOrderStatus.QUOTATION]
           : openOrderStatuses;
+
+      if (order.workshopTicket) {
+        throw new BadRequestException(
+          'Esta orden corresponde a una reparación terminada. Libera la toma de Caja si otro cajero la cobrará; no se puede cancelar como una venta de mostrador.',
+        );
+      }
 
       const cancelledRows = await tx.salesOrder.updateMany({
         where: {
@@ -861,11 +872,14 @@ export class OrdersService {
 
       const priceLevel = dto.priceLevel ?? SalesOrderPriceLevel.REGULAR;
       const discountRate = this.getDiscountRate(priceLevel);
-      const inventorySource = dto.inventorySource ?? order.inventorySource;
-      if (inventorySource !== order.inventorySource) {
-        throw new BadRequestException('The inventory source cannot be changed after creating a quotation.');
-      }
-      const computed = await this.computeOrder(tenantId, dto.items, tx, priceLevel, inventorySource);
+      const inventorySource = ProductInventoryDestination.SALES_INVENTORY;
+      const computed = await this.computeOrder(
+        tenantId,
+        dto.items,
+        tx,
+        priceLevel,
+        inventorySource,
+      );
 
       // Update order fields
       const updated = await tx.salesOrder.update({
@@ -957,7 +971,7 @@ export class OrdersService {
     const products = await client.product.findMany({
       where: {
         tenantId,
-        inventoryDestination: inventorySource,
+        inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         id: { in: Array.from(quantitiesByProduct.keys()) },
         status: ProductStatus.ACTIVE,
       },
@@ -1290,6 +1304,7 @@ export class OrdersService {
     if (
       !adminRoles.includes(membership.role) &&
       !membership.canUsePos &&
+      !effectivePermissions(membership)['sales.orders'] &&
       membership.role !== Role.CASHIER &&
       membership.role !== Role.ORDER_TAKER
     ) {
@@ -1298,9 +1313,10 @@ export class OrdersService {
   }
 
   private async ensureCanTakeOrders(tenantId: string, user: AuthenticatedUser) {
+    requirePermissions(user, tenantId, 'sales.orders');
     const membership = this.getMembership(tenantId, user);
 
-    if (!adminRoles.includes(membership.role) && membership.role !== Role.ORDER_TAKER) {
+    if (!effectivePermissions(membership)['sales.orders']) {
       throw new ForbiddenException('Employee does not have permission to take orders.');
     }
 
@@ -1312,6 +1328,7 @@ export class OrdersService {
   }
 
   private async ensureCanUsePosForOrders(tenantId: string, user: AuthenticatedUser) {
+    requirePermissions(user, tenantId, 'pos.sell');
     const membership = this.getMembership(tenantId, user);
 
     if (
@@ -1400,6 +1417,13 @@ export class OrdersService {
         },
       },
       invoice: { select: { id: true, invoiceNumber: true, total: true } },
+      workshopTicket: {
+        select: {
+          id: true,
+          ticketNumber: true,
+          vehicle: { select: { licensePlate: true, make: true, model: true, year: true } },
+        },
+      },
       creditApproval: {
         include: {
           requestedBy: { select: { id: true, name: true, email: true } },

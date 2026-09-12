@@ -1,3 +1,5 @@
+import { requirePermissions } from '../../common/authorization';
+import { effectivePermissions } from '@qorvex/permissions';
 import {
   BadRequestException,
   ForbiddenException,
@@ -27,7 +29,6 @@ import {
 } from './dto/create-return-request.dto';
 
 const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
-const requestRoles: Role[] = [Role.CASHIER, ...adminRoles];
 const requestBlockingStatuses: ReturnRequestStatus[] = [
   ReturnRequestStatus.REQUESTED,
   ReturnRequestStatus.APPROVED,
@@ -51,9 +52,9 @@ export class ReturnsService {
 
   async findAll(tenantId: string, user: AuthenticatedUser, status?: string) {
     const membership = this.getMembership(tenantId, user);
-    this.ensureCanRequestReturn(membership);
+    requirePermissions(user, tenantId, 'returns.view');
     const parsedStatus = this.parseStatus(status);
-    const admin = this.isAdmin(membership);
+    const admin = effectivePermissions(membership)['returns.view_all'];
 
     return this.prisma.returnRequest.findMany({
       where: {
@@ -69,7 +70,7 @@ export class ReturnsService {
 
   async lookupInvoice(tenantId: string, user: AuthenticatedUser, q: string) {
     const membership = this.getMembership(tenantId, user);
-    this.ensureCanRequestReturn(membership);
+    requirePermissions(user, tenantId, 'returns.request');
 
     const query = q.trim();
     if (!query) {
@@ -102,7 +103,7 @@ export class ReturnsService {
 
   async create(tenantId: string, user: AuthenticatedUser, dto: CreateReturnRequestDto) {
     const membership = this.getMembership(tenantId, user);
-    this.ensureCanRequestReturn(membership);
+    requirePermissions(user, tenantId, 'returns.request');
 
     if (!this.isAdmin(membership)) {
       await this.ensureActiveEmployeeProfile(tenantId, user.id, 'request returns');
@@ -192,7 +193,7 @@ export class ReturnsService {
     dto: ApproveReturnRequestDto,
   ) {
     const membership = this.getMembership(tenantId, user);
-    this.ensureCanApproveReturn(membership);
+    requirePermissions(user, tenantId, 'returns.approve');
 
     return this.prisma.$transaction(async (tx) => {
       await this.lockReturnRequest(tx, tenantId, returnRequestId);
@@ -442,7 +443,7 @@ export class ReturnsService {
     dto: RejectReturnRequestDto,
   ) {
     const membership = this.getMembership(tenantId, user);
-    this.ensureCanApproveReturn(membership);
+    requirePermissions(user, tenantId, 'returns.approve');
     const adminNote = dto.adminNote.trim();
 
     if (!adminNote) {
@@ -861,21 +862,6 @@ export class ReturnsService {
     }
 
     return membership;
-  }
-
-  private ensureCanRequestReturn(membership: AuthenticatedUser['memberships'][number]) {
-    if (
-      !requestRoles.includes(membership.role) &&
-      !(membership.canUsePos && membership.role === Role.CASHIER)
-    ) {
-      throw new ForbiddenException('Employee does not have permission to request returns.');
-    }
-  }
-
-  private ensureCanApproveReturn(membership: AuthenticatedUser['memberships'][number]) {
-    if (!this.isAdmin(membership)) {
-      throw new ForbiddenException('Only admins can approve or reject returns.');
-    }
   }
 
   private isAdmin(membership: AuthenticatedUser['memberships'][number]) {

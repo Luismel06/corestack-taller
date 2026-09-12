@@ -52,7 +52,9 @@ export class InvoicesService {
     }
 
     if (dto.items.some((item) => !item.productId)) {
-      throw new BadRequestException('Invoice items must reference products so totals are recalculated from database.');
+      throw new BadRequestException(
+        'Invoice items must reference products so totals are recalculated from database.',
+      );
     }
 
     const productIds = dto.items.map((item) => item.productId!);
@@ -88,6 +90,7 @@ export class InvoicesService {
       .reduce((sum, item) => sum.add(item.total), new Prisma.Decimal(0))
       .toDecimalPlaces(2);
     const status = dto.status ?? InvoiceStatus.DRAFT;
+    this.assertDraftStatus(status);
     const shouldAffectInventory = inventoryAffectingStatuses.includes(status);
 
     const invoice = await this.prisma.$transaction(async (tx) => {
@@ -228,7 +231,12 @@ export class InvoicesService {
   }
 
   async update(tenantId: string, userId: string, id: string, dto: UpdateInvoiceDto) {
-    await this.findOne(tenantId, id);
+    const current = await this.findOne(tenantId, id);
+    this.assertDraftStatus(current.status);
+    if (current.ncf || current.eNcf || current.cashSessionId) {
+      throw new BadRequestException('Un comprobante emitido no se modifica como borrador.');
+    }
+    if (dto.status !== undefined) this.assertDraftStatus(dto.status);
 
     const invoice = await this.prisma.invoice.update({
       where: { id },
@@ -249,6 +257,14 @@ export class InvoicesService {
     });
 
     return invoice;
+  }
+
+  private assertDraftStatus(status: InvoiceStatus) {
+    if (status !== InvoiceStatus.DRAFT) {
+      throw new BadRequestException(
+        'Este endpoint solo gestiona borradores. Emite y cobra desde POS y Caja.',
+      );
+    }
   }
 
   private async ensureCustomer(tenantId: string, customerId: string) {

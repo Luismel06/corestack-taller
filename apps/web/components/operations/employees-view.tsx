@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getEmployees } from '@/lib/api';
+import { getEmployees, getEmployeeUserLimit } from '@/lib/api';
 import { brand } from '@/lib/brand';
 import { getStatusVariant, translateRole, translateStatus } from '@/lib/display-labels';
 import { ModuleHeader } from './module-header';
@@ -25,6 +25,12 @@ export function EmployeesView() {
   const employeesQuery = useQuery({
     queryKey: ['employees', session?.tenantId],
     queryFn: () => getEmployees(session?.tenantId ?? '', session?.accessToken ?? ''),
+    enabled: Boolean(session),
+  });
+
+  const limitQuery = useQuery({
+    queryKey: ['employee-user-limit', session?.tenantId],
+    queryFn: () => getEmployeeUserLimit(session!.tenantId, session!.accessToken),
     enabled: Boolean(session),
   });
 
@@ -39,19 +45,33 @@ export function EmployeesView() {
         description={`Usuarios operativos de ${brand.name} con roles y permisos por empresa.`}
       />
 
-      <div className="flex justify-end">
-        <Button asChild>
-          <Link href="/employees/new">
-            <Plus className="h-4 w-4" />
-            Nuevo empleado
-          </Link>
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground" role="status">
+          {limitQuery.data
+            ? `${limitQuery.data.used} de ${limitQuery.data.limit} usuarios activos. Incluye administradores.`
+            : 'Consultando cupos de usuarios…'}
+          {limitQuery.error ? ' No se pudieron consultar los cupos.' : ''}
+        </p>
+        {limitQuery.data && limitQuery.data.available > 0 ? (
+          <Button asChild>
+            <Link href="/employees/new">
+              <Plus className="h-4 w-4" />
+              Nuevo empleado
+            </Link>
+          </Button>
+        ) : (
+          <Button disabled>
+            Límite de usuarios {limitQuery.data ? 'alcanzado' : 'no disponible'}
+          </Button>
+        )}
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Equipo {brand.name}</CardTitle>
-          <CardDescription>{employeesQuery.data?.length ?? 0} perfiles laborales registrados.</CardDescription>
+          <CardDescription>
+            {employeesQuery.data?.length ?? 0} perfiles laborales registrados.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -82,9 +102,15 @@ export function EmployeesView() {
                           <Badge variant="success">Acceso contable</Badge>
                         ) : null}
                         {membership?.canUsePos ? <Badge variant="success">Usar caja</Badge> : null}
-                        {membership?.canTakeOrders ? <Badge variant="success">Tomar ordenes</Badge> : null}
-                        {membership?.canOpenCashSession ? <Badge variant="outline">Abrir caja</Badge> : null}
-                        {membership?.canCloseCashSession ? <Badge variant="outline">Cerrar caja</Badge> : null}
+                        {membership?.canTakeOrders ? (
+                          <Badge variant="success">Tomar ordenes</Badge>
+                        ) : null}
+                        {membership?.canOpenCashSession ? (
+                          <Badge variant="outline">Abrir caja</Badge>
+                        ) : null}
+                        {membership?.canCloseCashSession ? (
+                          <Badge variant="outline">Cerrar caja</Badge>
+                        ) : null}
                         {membership?.canApplyDiscount ? (
                           <Badge variant="outline">Descuentos</Badge>
                         ) : null}
@@ -94,12 +120,18 @@ export function EmployeesView() {
                         {membership?.canVoidInvoice ? (
                           <Badge variant="outline">Anular facturas</Badge>
                         ) : null}
-                        {membership?.canManageProducts ? <Badge variant="outline">Productos</Badge> : null}
+                        {membership?.canManageProducts ? (
+                          <Badge variant="outline">Productos</Badge>
+                        ) : null}
                         {membership?.canAdjustInventory ? (
                           <Badge variant="outline">Inventario</Badge>
                         ) : null}
-                        {membership?.canManageEmployees ? <Badge variant="outline">Empleados</Badge> : null}
-                        {membership?.canViewReports ? <Badge variant="outline">Reportes</Badge> : null}
+                        {membership?.canManageEmployees ? (
+                          <Badge variant="outline">Empleados</Badge>
+                        ) : null}
+                        {membership?.canViewReports ? (
+                          <Badge variant="outline">Reportes</Badge>
+                        ) : null}
                         {membership?.canManageFiscalSequences ? (
                           <Badge variant="outline">Secuencias fiscales</Badge>
                         ) : null}
@@ -112,7 +144,9 @@ export function EmployeesView() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={getStatusVariant(employee.status)}>{translateStatus(employee.status)}</Badge>
+                      <Badge variant={getStatusVariant(employee.status)}>
+                        {translateStatus(employee.status)}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -122,7 +156,10 @@ export function EmployeesView() {
                           </Link>
                         </Button>
                         <Button asChild variant="ghost" size="icon">
-                          <Link href={`/employees/${employee.id}/edit`} aria-label="Editar empleado">
+                          <Link
+                            href={`/employees/${employee.id}/edit`}
+                            aria-label="Editar empleado"
+                          >
                             <Pencil className="h-4 w-4" />
                           </Link>
                         </Button>

@@ -32,7 +32,7 @@ function assertSeedAllowed() {
     throw new Error(
       [
         'Refusing to run the development seed in production.',
-        'This seed deletes existing data before recreating the CoreStack/ALLPA demo dataset.',
+        'This seed deletes existing data before recreating the CoreStack/X workshop demo dataset.',
         'Set ALLOW_PRODUCTION_SEED=true only for an intentional staging/demo reseed.',
       ].join(' '),
     );
@@ -86,6 +86,10 @@ function getInvoiceAmounts(lines: SeedLine[]) {
 }
 
 async function main() {
+  await prisma.workshopTicketLine.deleteMany();
+  await prisma.workshopTicketAssignment.deleteMany();
+  await prisma.workshopTicket.deleteMany();
+  await prisma.workshopVehicle.deleteMany();
   await prisma.importRowError.deleteMany();
   await prisma.importBatch.deleteMany();
   await prisma.employeeActivityLog.deleteMany();
@@ -135,21 +139,20 @@ async function main() {
 
   const allpaTenant = await prisma.tenant.create({
     data: {
-      name: 'ALLPA',
-      commercialName: 'ALLPA',
-      legalName: 'ALLPA',
-      slug: 'allpa',
-      rnc: '131000000',
-      email: 'lisbeth@allpa.local',
+      name: 'X',
+      commercialName: 'X',
+      legalName: 'X',
+      slug: 'x-workshop',
+      email: 'admin@x.local',
       phone: '809-555-0100',
       address: 'Av. Principal 102, Santo Domingo, Republica Dominicana',
       branding: {
         create: {
-          logoUrl: '/brand/allpa-logo.png',
+          logoUrl: '/brand/x-logo.svg',
           primaryColor: '#111111',
           accentColor: '#ffffff',
-          loginTitle: 'ALLPA',
-          loginSubtitle: 'EXHIBIDORES, EMPAQUES Y TIPS',
+          loginTitle: 'X',
+          loginSubtitle: 'Gestión de taller',
         },
       },
     },
@@ -176,8 +179,8 @@ async function main() {
 
   const admin = await prisma.user.create({
     data: {
-      email: 'lisbeth@allpa.local',
-      name: 'Lisbeth - ALLPA',
+      email: 'admin@x.local',
+      name: 'Administrador X',
       phone: '809-555-0101',
       passwordHash,
       memberships: {
@@ -202,7 +205,7 @@ async function main() {
       employeeProfiles: {
         create: {
           tenantId: allpaTenant.id,
-          employeeCode: 'ALL-ADM-001',
+          employeeCode: 'X-ADM-001',
           jobTitle: 'Administrador general',
           hireDate: new Date('2025-02-01T00:00:00.000Z'),
           documentType: DocumentType.CEDULA,
@@ -215,8 +218,8 @@ async function main() {
 
   const cashier = await prisma.user.create({
     data: {
-      email: 'cajero@allpa.local',
-      name: 'Cajero ALLPA',
+      email: 'cajero@x.local',
+      name: 'Cajero X',
       phone: '809-555-0102',
       passwordHash,
       memberships: {
@@ -233,7 +236,7 @@ async function main() {
       employeeProfiles: {
         create: {
           tenantId: allpaTenant.id,
-          employeeCode: 'ALL-CAJ-001',
+          employeeCode: 'X-CAJ-001',
           jobTitle: 'Cajero principal',
           hireDate: new Date('2025-05-15T00:00:00.000Z'),
           documentType: DocumentType.CEDULA,
@@ -246,8 +249,8 @@ async function main() {
 
   const orderTaker = await prisma.user.create({
     data: {
-      email: 'ordenanza@allpa.local',
-      name: 'Ordenanza ALLPA',
+      email: 'ordenes@x.local',
+      name: 'Recepción X',
       phone: '809-555-0103',
       passwordHash,
       memberships: {
@@ -260,8 +263,8 @@ async function main() {
       employeeProfiles: {
         create: {
           tenantId: allpaTenant.id,
-          employeeCode: 'ALL-ORD-001',
-          jobTitle: 'Ordenanza / toma de ordenes',
+          employeeCode: 'X-REC-001',
+          jobTitle: 'Recepción / toma de órdenes',
           hireDate: new Date('2025-06-01T00:00:00.000Z'),
           documentType: DocumentType.CEDULA,
           documentNumber: '00111223344',
@@ -1061,16 +1064,16 @@ async function main() {
         entityId: coreStackTenant.id,
         metadata: {
           source: 'development-seed',
-          note: 'CoreStack es proveedor/core, no tenant operativo de ALLPA.',
+          note: 'CoreStack es proveedor/core, no tenant operativo de X.',
         },
       },
     ],
   });
 
   console.log(`Seed completed for tenant ${allpaTenant.name} (${allpaTenant.id})`);
-  console.log(`ALLPA admin login: lisbeth@allpa.local / ${demoPassword}`);
-  console.log(`ALLPA cashier login: cajero@allpa.local / ${demoPassword}`);
-  console.log(`ALLPA ordenanza login: ordenanza@allpa.local / ${demoPassword}`);
+  console.log(`X admin login: admin@x.local / ${demoPassword}`);
+  console.log(`X cashier login: cajero@x.local / ${demoPassword}`);
+  console.log(`X reception login: ordenes@x.local / ${demoPassword}`);
   console.log(`CoreStack platform login: superadmin@corestack.local / ${demoPassword}`);
 }
 

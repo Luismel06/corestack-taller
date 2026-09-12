@@ -5,6 +5,7 @@ import { MembershipStatus, UserStatus } from '@qorvex/database';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { effectivePermissions, legacyPermissions } from '@qorvex/permissions';
 
 @Injectable()
 export class AuthService {
@@ -39,10 +40,13 @@ export class AuthService {
     }
 
     const activeMemberships = user.memberships.filter(
-      (membership) => membership.status === MembershipStatus.ACTIVE,
+      (membership) =>
+        membership.status === MembershipStatus.ACTIVE && membership.tenant.status === 'ACTIVE',
     );
 
     const configuredExpiresIn = this.config.get<string>('JWT_EXPIRES_IN', '8h');
+    if (!activeMemberships.length)
+      throw new UnauthorizedException('No tienes acceso activo a una empresa.');
     const tokenOptions = {
       secret: this.config.getOrThrow<string>('JWT_SECRET'),
       expiresIn: this.parseExpiresInSeconds(configuredExpiresIn),
@@ -86,6 +90,8 @@ export class AuthService {
           canViewCashLogs: membership.canViewCashLogs,
           canReprintReceipt: membership.canReprintReceipt,
           canTakeOrders: membership.canTakeOrders,
+          ...effectivePermissions(membership),
+          ...legacyPermissions(effectivePermissions(membership)),
         },
       })),
     };

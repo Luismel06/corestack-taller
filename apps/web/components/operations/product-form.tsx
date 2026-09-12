@@ -1,4 +1,5 @@
 'use client';
+import { hasPermission } from '@/lib/authorization';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save, Upload } from 'lucide-react';
@@ -112,7 +113,11 @@ export function ProductForm({ productId }: { productId?: string }) {
         price: parseCurrencyInput(form.price),
         cost: parseCurrencyInput(form.cost),
         taxRate: Number(form.taxRate),
-        stock: Number(form.stock),
+        stock: hasPermission(session, 'inventory.adjust')
+          ? Number(form.stock)
+          : productId
+            ? undefined
+            : 0,
         minStock: Number(form.minStock),
         status: form.status,
         trackInventory: form.trackInventory,
@@ -404,6 +409,7 @@ export function ProductForm({ productId }: { productId?: string }) {
                 min="0"
                 step="0.001"
                 inputMode="decimal"
+                disabled={!hasPermission(session, 'inventory.adjust')}
                 value={form.stock}
                 onChange={(event) => updateField('stock', event.target.value)}
                 required

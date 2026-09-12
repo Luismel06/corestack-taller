@@ -1,5 +1,5 @@
-import { WarehouseProductForm } from '@/components/operations/warehouse-product-form';
+import { redirect } from 'next/navigation';
 
 export default function NewWarehouseProductPage() {
-  return <WarehouseProductForm />;
+  redirect('/products/new');
 }

@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import {
   Body,
   Controller,
@@ -34,6 +35,7 @@ const supplierWriteRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SU
 @Controller('suppliers')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
 @Roles(...supplierReadRoles)
+@RequirePermissions('suppliers.view')
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
@@ -44,6 +46,7 @@ export class SuppliersController {
 
   @Post()
   @Roles(...supplierWriteRoles)
+  @RequirePermissions('suppliers.manage')
   create(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -59,6 +62,7 @@ export class SuppliersController {
 
   @Patch(':id')
   @Roles(...supplierWriteRoles)
+  @RequirePermissions('suppliers.manage')
   update(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -70,6 +74,7 @@ export class SuppliersController {
 
   @Patch(':id/deactivate')
   @Roles(...supplierWriteRoles)
+  @RequirePermissions('suppliers.manage')
   deactivate(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -80,6 +85,7 @@ export class SuppliersController {
 
   @Post(':id/products')
   @Roles(...supplierWriteRoles)
+  @RequirePermissions('suppliers.manage')
   addProduct(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -91,6 +97,7 @@ export class SuppliersController {
 
   @Patch(':id/products/:productId')
   @Roles(...supplierWriteRoles)
+  @RequirePermissions('suppliers.manage')
   updateProduct(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -103,6 +110,7 @@ export class SuppliersController {
 
   @Delete(':id/products/:productId')
   @Roles(...supplierWriteRoles)
+  @RequirePermissions('suppliers.manage')
   deactivateProduct(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,

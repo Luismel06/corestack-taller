@@ -2,11 +2,18 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { getSession, type AuthSession } from '@/lib/auth-session';
+import {
+  parseSessionSnapshot,
+  sessionSnapshot,
+  subscribeSession,
+  type AuthSession,
+} from '@/lib/auth-session';
+import { useMemo, useSyncExternalStore } from 'react';
 import { brand } from '@/lib/brand';
 
 export function useCurrentSession() {
-  return getSession();
+  const snapshot = useSyncExternalStore(subscribeSession, sessionSnapshot, () => null);
+  return useMemo(() => parseSessionSnapshot(snapshot), [snapshot]);
 }
 
 export function SessionRequired({ session }: { session: AuthSession | null }) {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -36,6 +37,7 @@ import {
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { requirePermissions } from '../../common/authorization';
 import { getBarcodeLookupCandidates } from '../../common/utils/barcode';
 import { businessDateKey } from '../../common/utils/business-date';
 import {
@@ -45,6 +47,17 @@ import {
 import { CompleteSaleDto, PosSaleItemDto } from './dto/complete-sale.dto';
 import { buildEcfSimulation } from './ecf-simulation';
 import { ResendService } from '../notifications/resend.service';
+import { createHash } from 'node:crypto';
+import { buildPaymentPlan } from './payment-plan';
+
+const receiptInclude = {
+  customer: true,
+  items: true,
+  payments: true,
+  electronicDocument: true,
+  issuedBy: { select: { id: true, name: true, email: true } },
+  cashSession: { include: { cashRegister: true } },
+} satisfies Prisma.InvoiceInclude;
 
 const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
 const claimTtlMs = 30 * 60 * 1000;
@@ -57,6 +70,8 @@ type ComputedSaleLine = {
   description: string;
   quantity: Prisma.Decimal;
   reservedQuantity: number;
+  inventoryConsumedQuantity: Prisma.Decimal;
+  workshopTicketLineId: string | null;
   unitPrice: Prisma.Decimal;
   discountTotal: Prisma.Decimal;
   taxRate: Prisma.Decimal;
@@ -76,21 +91,19 @@ export class PosService {
     await this.ensureCanCreateDirectSale(tenantId, user);
     const query = q.trim();
 
-    if (!query) {
-      return [];
-    }
-
     return this.prisma.product.findMany({
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
         status: ProductStatus.ACTIVE,
-        OR: [
-          { name: { contains: query, mode: 'insensitive' } },
-          { sku: { contains: query, mode: 'insensitive' } },
-          { barcode: { contains: query, mode: 'insensitive' } },
-          { brand: { contains: query, mode: 'insensitive' } },
-        ],
+        OR: query
+          ? [
+              { name: { contains: query, mode: 'insensitive' } },
+              { sku: { contains: query, mode: 'insensitive' } },
+              { barcode: { contains: query, mode: 'insensitive' } },
+              { brand: { contains: query, mode: 'insensitive' } },
+            ]
+          : undefined,
       },
       include: { category: true },
       orderBy: [{ stock: 'asc' }, { name: 'asc' }],
@@ -152,6 +165,7 @@ export class PosService {
   }
 
   async completeSale(tenantId: string, user: AuthenticatedUser, dto: CompleteSaleDto) {
+    requirePermissions(user, tenantId, 'pos.sell');
     const membership = await this.ensureCanUsePos(tenantId, user);
 
     if (this.isAdminMembership(membership)) {
@@ -160,12 +174,38 @@ export class PosService {
       );
     }
 
-    if (!dto.orderId) {
-      throw new ForbiddenException('Direct POS sales are disabled. Load an order to charge.');
+    if (!dto.orderId && !dto.checkoutKey) {
+      throw new BadRequestException(
+        'La venta directa requiere una clave de cobro para evitar duplicados.',
+      );
     }
-    this.ensureSupportedPaymentMethod(dto.paymentMethod);
+    if (
+      dto.checkoutKey &&
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
+        dto.checkoutKey,
+      )
+    ) {
+      throw new BadRequestException('Clave de cobro no válida.');
+    }
+    const requestHash = this.checkoutRequestHash(dto);
+    const existing = await this.findCompletedCheckout(
+      this.prisma,
+      tenantId,
+      user.id,
+      dto.checkoutKey,
+      requestHash,
+    );
+    if (existing) return existing;
 
     const completedSale = await this.runSerializable(async (tx) => {
+      const duplicate = await this.findCompletedCheckout(
+        tx,
+        tenantId,
+        user.id,
+        dto.checkoutKey,
+        requestHash,
+      );
+      if (duplicate) return { invoice: duplicate, ecfCopy: null };
       const cashSession = await this.findCashSessionForSale(
         tx,
         tenantId,
@@ -187,13 +227,21 @@ export class PosService {
         throw new BadRequestException('Sales order totals are inconsistent and must be reviewed.');
       }
 
-      const documentType = order?.electronicInvoiceRequested
+      const electronicInvoiceRequested = order
+        ? order.electronicInvoiceRequested
+        : dto.electronicInvoiceRequested === true;
+      const documentType = electronicInvoiceRequested
         ? dto.documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31
           ? InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31
           : InvoiceDocumentType.CONSUMER_ELECTRONIC_32
         : dto.documentType === InvoiceDocumentType.FISCAL_CREDIT_01
           ? InvoiceDocumentType.FISCAL_CREDIT_01
           : InvoiceDocumentType.CONSUMER_02;
+      if (dto.documentType && dto.documentType !== documentType) {
+        throw new BadRequestException(
+          'El comprobante seleccionado no corresponde al tipo local/electrónico solicitado.',
+        );
+      }
       const requiresFiscalCustomer =
         documentType === InvoiceDocumentType.FISCAL_CREDIT_01 ||
         documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31;
@@ -356,12 +404,7 @@ export class PosService {
       await this.lockOpenCashSessionForUser(tx, tenantId, user.id, cashSession.id);
       const sequence = await this.reserveFiscalSequence(tx, tenantId, documentType);
       const requiredPayment = isCreditSale ? order.initialPaymentAmount : computed.total;
-      const payment = this.getPaymentAmounts(
-        dto.amountReceived,
-        computed.total,
-        dto.paymentMethod,
-        requiredPayment,
-      );
+      const payment = buildPaymentPlan(requiredPayment, dto);
       const paidAmount = payment.paidAmount;
       const balance = computed.total.sub(paidAmount).toDecimalPlaces(2);
       const status = this.getInvoiceStatus(paidAmount, computed.total);
@@ -370,15 +413,15 @@ export class PosService {
       const isElectronicDocument =
         documentType === InvoiceDocumentType.FISCAL_CREDIT_ELECTRONIC_31 ||
         documentType === InvoiceDocumentType.CONSUMER_ELECTRONIC_32;
-      const invoiceNumber = `ALL-${fiscalNumber}`;
+      const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+      const invoiceNumber = `${this.invoicePrefix(tenant.slug)}-${fiscalNumber}`;
       const eNcf = isElectronicDocument ? fiscalNumber : null;
-      const tenant = isElectronicDocument
-        ? await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } })
-        : null;
 
       const invoice = await tx.invoice.create({
         data: {
           tenantId,
+          checkoutKey: dto.checkoutKey,
+          checkoutRequestHash: dto.checkoutKey ? requestHash : undefined,
           customerId: customer?.id,
           documentType,
           invoiceNumber,
@@ -397,7 +440,7 @@ export class PosService {
           changeAmount: payment.changeAmount,
           balance,
           paymentMode: isCreditSale ? SalePaymentMode.CREDIT : SalePaymentMode.CASH,
-          paymentMethod: dto.paymentMethod,
+          paymentMethod: payment.paymentMethod,
           issuedById: user.id,
           cashSessionId: cashSession.id,
           issuedAt,
@@ -438,15 +481,33 @@ export class PosService {
           fromOrder: Boolean(order),
           inventorySource: order?.inventorySource ?? ProductInventoryDestination.SALES_INVENTORY,
         });
+        if (order?.workshopTicket && item.workshopTicketLineId && item.product.trackInventory) {
+          const synchronized = await tx.workshopTicketLine.updateMany({
+            where: {
+              id: item.workshopTicketLineId,
+              ticketId: order.workshopTicket.id,
+            },
+            data: {
+              consumedQuantity: item.quantity,
+              reservedQuantity: 0,
+            },
+          });
+          if (synchronized.count !== 1) {
+            throw new BadRequestException(
+              `No se pudo vincular ${item.description} con la orden de trabajo.`,
+            );
+          }
+        }
       }
 
-      if (paidAmount.gt(0)) {
+      for (const part of payment.payments) {
         await tx.payment.create({
           data: {
             tenantId,
             invoiceId: invoice.id,
-            method: dto.paymentMethod,
-            amount: paidAmount,
+            method: part.method,
+            amount: part.amount,
+            reference: part.reference,
             status: PaymentStatus.COMPLETED,
             userId: user.id,
             cashSessionId: cashSession.id,
@@ -460,8 +521,8 @@ export class PosService {
             cashSessionId: cashSession.id,
             userId: user.id,
             type: CashMovementType.SALE_PAYMENT,
-            amount: paidAmount,
-            method: dto.paymentMethod,
+            amount: part.amount,
+            method: part.method,
             reason: 'Pago de venta POS',
             reference: invoice.invoiceNumber,
             invoiceId: invoice.id,
@@ -483,7 +544,12 @@ export class PosService {
             metadata: {
               invoiceNumber,
               eNcf,
-              paymentMethod: dto.paymentMethod,
+              paymentMethod: payment.paymentMethod ?? 'MIXED',
+              payments: payment.payments.map((part) => ({
+                method: part.method,
+                amount: part.amount.toFixed(2),
+                reference: part.reference ?? null,
+              })),
               amountReceived: payment.amountReceived.toString(),
               changeAmount: payment.changeAmount.toString(),
               orderNumber: order?.orderNumber,
@@ -549,6 +615,24 @@ export class PosService {
             claimExpiresAt: null,
           },
         });
+        if (order.workshopTicket) {
+          await tx.inventoryMovement.updateMany({
+            where: {
+              tenantId,
+              workshopTicketLine: { ticketId: order.workshopTicket.id },
+              type: {
+                in: [
+                  InventoryMovementType.WORK_ORDER_CONSUMPTION,
+                  InventoryMovementType.WORK_ORDER_RETURN,
+                ],
+              },
+              invoiceId: null,
+            },
+            data: { invoiceId: invoice.id },
+          });
+        }
+        // Una factura pagada deja la OT lista para entrega. La entrega física se
+        // registra por separado, con la persona receptora y kilometraje de salida.
       }
 
       if (isCreditSale && customer) {
@@ -587,9 +671,16 @@ export class PosService {
                   }
                 : null,
               recipientEmail:
-                order?.ecfRecipientEmail ?? customer?.email ?? tenant.email,
+                order?.ecfRecipientEmail ??
+                dto.ecfRecipientEmail?.trim() ??
+                customer?.email ??
+                tenant.email,
               cashRegisterName: cashSession.cashRegister.name,
-              paymentMethod: dto.paymentMethod,
+              paymentMethod: payment.paymentMethod ?? 'MIXED',
+              payments: payment.payments.map((part) => ({
+                method: part.method,
+                amount: part.amount.toNumber(),
+              })),
               paymentMode: isCreditSale ? 'CREDIT' : 'CASH',
               subtotal: computed.subtotal,
               taxTotal: computed.taxTotal,
@@ -684,6 +775,22 @@ export class PosService {
               }
             : null,
       };
+    }).catch(async (error) => {
+      if (
+        dto.checkoutKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const duplicate = await this.findCompletedCheckout(
+          this.prisma,
+          tenantId,
+          user.id,
+          dto.checkoutKey,
+          requestHash,
+        );
+        if (duplicate) return { invoice: duplicate, ecfCopy: null };
+      }
+      throw error;
     });
 
     if (completedSale.ecfCopy) {
@@ -762,6 +869,7 @@ export class PosService {
       include: {
         customer: true,
         creditApproval: true,
+        workshopTicket: { select: { id: true, ticketNumber: true } },
         items: {
           include: {
             product: true,
@@ -818,6 +926,8 @@ export class PosService {
         description: product.name,
         quantity,
         reservedQuantity: 0,
+        inventoryConsumedQuantity: new Prisma.Decimal(0),
+        workshopTicketLineId: null,
         unitPrice,
         discountTotal,
         taxRate: product.taxRate,
@@ -865,6 +975,7 @@ export class PosService {
 
   private async computeSaleFromOrder(order: {
     inventorySource: ProductInventoryDestination;
+    workshopTicket: { id: string } | null;
     items: Array<{
       productId: string | null;
       sku: string | null;
@@ -872,6 +983,8 @@ export class PosService {
       description: string;
       quantity: Prisma.Decimal;
       reservedQuantity: number;
+      inventoryConsumedQuantity: Prisma.Decimal;
+      workshopTicketLineId: string | null;
       unitPrice: Prisma.Decimal;
       discountTotal: Prisma.Decimal;
       taxRate: Prisma.Decimal;
@@ -894,6 +1007,8 @@ export class PosService {
         description: item.description,
         quantity: item.quantity,
         reservedQuantity: item.reservedQuantity,
+        inventoryConsumedQuantity: item.inventoryConsumedQuantity,
+        workshopTicketLineId: item.workshopTicketLineId,
         unitPrice: item.unitPrice,
         discountTotal: item.discountTotal,
         taxRate: item.taxRate,
@@ -905,6 +1020,17 @@ export class PosService {
 
     for (const item of computedItems) {
       const quantity = item.quantity.toNumber();
+      if (
+        item.inventoryConsumedQuantity.lt(0) ||
+        item.inventoryConsumedQuantity.gt(item.quantity) ||
+        (item.inventoryConsumedQuantity.gt(0) &&
+          (!order.workshopTicket || !item.product.trackInventory))
+      ) {
+        throw new BadRequestException(
+          `Workshop consumption is inconsistent for ${item.description}.`,
+        );
+      }
+      const pendingQuantity = item.quantity.sub(item.inventoryConsumedQuantity).toNumber();
 
       if (
         item.product.trackInventory &&
@@ -916,13 +1042,13 @@ export class PosService {
         );
       }
 
-      if (item.product.trackInventory && Math.abs(item.reservedQuantity - quantity) > 1e-9) {
+      if (item.product.trackInventory && Math.abs(item.reservedQuantity - pendingQuantity) > 1e-9) {
         throw new BadRequestException(
           `Inventory reservation is incomplete for ${item.description}.`,
         );
       }
 
-      if (item.product.trackInventory && item.product.stock < quantity) {
+      if (item.product.trackInventory && item.product.stock < pendingQuantity) {
         throw new BadRequestException(`Insufficient stock for ${item.description}.`);
       }
     }
@@ -958,7 +1084,10 @@ export class PosService {
   ) {
     const { tenantId, item, invoiceId, invoiceNumber, userId, fromOrder, inventorySource } = args;
 
-    const quantity = item.quantity.toNumber();
+    const quantity = item.quantity.sub(fromOrder ? item.inventoryConsumedQuantity : 0).toNumber();
+    // Workshop parts were deducted on issue, not on payment. Keep the original
+    // issue/return ledger linked to this invoice instead of recording another sale.
+    if (quantity === 0) return;
     if (inventorySource === ProductInventoryDestination.WAREHOUSE) {
       if (requiresWholeQuantity(item.product.unit) && !Number.isInteger(quantity)) {
         throw new BadRequestException(
@@ -1044,14 +1173,21 @@ export class PosService {
       data: {
         tenantId,
         productId: item.productId,
-        type: InventoryMovementType.SALE,
+        type: item.workshopTicketLineId
+          ? InventoryMovementType.WORK_ORDER_CONSUMPTION
+          : InventoryMovementType.SALE,
         quantity,
         previousStock,
         newStock,
         unitCost: item.product.cost,
-        reason: fromOrder ? 'Venta POS facturada desde orden' : 'Venta POS facturada',
+        reason: item.workshopTicketLineId
+          ? 'Repuesto asignado a OT al emitir la factura'
+          : fromOrder
+            ? 'Venta POS facturada desde orden'
+            : 'Venta POS facturada',
         reference: invoiceNumber,
         invoiceId,
+        workshopTicketLineId: fromOrder ? item.workshopTicketLineId : null,
         createdById: userId,
       },
     });
@@ -1254,8 +1390,10 @@ export class PosService {
   private async ensureCanCreateDirectSale(tenantId: string, user: AuthenticatedUser) {
     const membership = await this.ensureCanUsePos(tenantId, user);
 
-    if (!this.isAdminMembership(membership)) {
-      throw new ForbiddenException('Only admins can create direct POS sales.');
+    if (this.isAdminMembership(membership)) {
+      throw new ForbiddenException(
+        'La venta directa requiere un usuario autorizado para operar Caja.',
+      );
     }
 
     return membership;
@@ -1269,6 +1407,7 @@ export class PosService {
 
     if (
       !membership ||
+      membership.status !== 'ACTIVE' ||
       (!membership.canUsePos && ![...adminRoles, Role.CASHIER].includes(membership.role))
     ) {
       throw new ForbiddenException('Employee does not have POS access.');
@@ -1296,15 +1435,58 @@ export class PosService {
     return adminRoles.includes(membership.role);
   }
 
-  private ensureSupportedPaymentMethod(paymentMethod: PaymentMethod) {
-    const supportedMethods: PaymentMethod[] = [
-      PaymentMethod.CASH,
-      PaymentMethod.CARD,
-      PaymentMethod.TRANSFER,
-    ];
-    if (!supportedMethods.includes(paymentMethod)) {
-      throw new BadRequestException('POS payments only support cash, card, or transfer.');
+  private checkoutRequestHash(dto: CompleteSaleDto) {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          orderId: dto.orderId ?? null,
+          customerId: dto.customerId ?? null,
+          documentType: dto.documentType ?? null,
+          electronicInvoiceRequested: dto.electronicInvoiceRequested ?? false,
+          ecfRecipientEmail: dto.ecfRecipientEmail?.trim().toLowerCase() ?? null,
+          fiscalDocumentType: dto.fiscalDocumentType ?? null,
+          fiscalDocumentNumber: dto.fiscalDocumentNumber
+            ? normalizeDominicanDocument(dto.fiscalDocumentNumber)
+            : null,
+          paymentMethod: dto.paymentMethod ?? null,
+          amountReceived: dto.amountReceived ?? null,
+          cashSessionId: dto.cashSessionId ?? null,
+          payments:
+            dto.payments
+              ?.map((item) => ({
+                method: item.method,
+                amount: item.amount,
+                amountReceived: item.amountReceived ?? null,
+                reference: item.reference?.trim() ?? null,
+              }))
+              .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) ?? null,
+          items:
+            dto.items
+              ?.map((item) => ({ productId: item.productId, quantity: item.quantity }))
+              .sort((a, b) => a.productId.localeCompare(b.productId)) ?? null,
+        }),
+      )
+      .digest('hex');
+  }
+
+  private async findCompletedCheckout(
+    client: PrismaService | Prisma.TransactionClient,
+    tenantId: string,
+    userId: string,
+    key: string | undefined,
+    hash: string,
+  ) {
+    if (!key) return null;
+    const invoice = await client.invoice.findUnique({
+      where: { tenantId_checkoutKey: { tenantId, checkoutKey: key } },
+      include: receiptInclude,
+    });
+    if (invoice && (invoice.checkoutRequestHash !== hash || invoice.issuedById !== userId)) {
+      throw new ConflictException(
+        'Esta clave ya corresponde a otro cobro. Revisa la factura antes de iniciar una nueva venta.',
+      );
     }
+    return invoice;
   }
 
   /**
@@ -1346,46 +1528,6 @@ export class PosService {
     );
   }
 
-  private getPaymentAmounts(
-    amountReceived: number | undefined,
-    total: Prisma.Decimal,
-    paymentMethod: PaymentMethod,
-    requiredPayment: Prisma.Decimal = total,
-  ) {
-    const required = requiredPayment.toDecimalPlaces(2);
-    if (required.lt(0) || required.gt(total)) {
-      throw new BadRequestException('Required payment amount is invalid.');
-    }
-    const tendered = new Prisma.Decimal(amountReceived ?? required).toDecimalPlaces(2);
-
-    if (tendered.lt(0)) {
-      throw new BadRequestException('Amount received cannot be negative.');
-    }
-
-    if (required.isZero() && !tendered.isZero()) {
-      throw new BadRequestException('This credit sale has no initial payment to collect.');
-    }
-
-    if (paymentMethod === PaymentMethod.CASH && tendered.lt(required)) {
-      throw new BadRequestException('Cash received must cover the required initial payment.');
-    }
-
-    if (paymentMethod !== PaymentMethod.CASH && !tendered.eq(required)) {
-      throw new BadRequestException(
-        'Card and transfer payments must equal the required initial payment.',
-      );
-    }
-
-    return {
-      paidAmount: required,
-      amountReceived: tendered,
-      changeAmount:
-        paymentMethod === PaymentMethod.CASH && tendered.gt(required)
-          ? tendered.sub(required).toDecimalPlaces(2)
-          : new Prisma.Decimal(0),
-    };
-  }
-
   private getInvoiceStatus(paidAmount: Prisma.Decimal, total: Prisma.Decimal) {
     if (paidAmount.gte(total)) {
       return InvoiceStatus.PAID;
@@ -1396,6 +1538,16 @@ export class PosService {
     }
 
     return InvoiceStatus.ISSUED;
+  }
+
+  private invoicePrefix(tenantSlug: string) {
+    const prefix = tenantSlug
+      .split('-')
+      .filter(Boolean)[0]
+      ?.replace(/[^a-z0-9]/gi, '')
+      .toUpperCase()
+      .slice(0, 8);
+    return prefix || 'CORESTACK';
   }
 }
 

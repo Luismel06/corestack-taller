@@ -12,15 +12,15 @@ import { Label } from '@/components/ui/label';
 import {
   approveReturnRequest,
   createReturnRequest,
-  getCashSessions,
+  getPaymentCashSessions,
   getReturnRequests,
   lookupReturnInvoice,
   rejectReturnRequest,
-  type CashSession,
+  type PaymentCashSession,
   type ReturnInvoiceLookup,
   type ReturnRequest,
 } from '@/lib/api';
-import { isAdminSession } from '@/lib/authorization';
+import { hasPermission } from '@/lib/authorization';
 import { getStatusVariant, translatePaymentMethod, translateStatus } from '@/lib/display-labels';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { formatQuantity, getQuantityStep } from './pos/pos-utils';
@@ -60,7 +60,8 @@ export function ReturnsView() {
   const [decisionCashSessionId, setDecisionCashSessionId] = useState('');
   const [decisionRefundMethod, setDecisionRefundMethod] = useState('CASH');
 
-  const admin = isAdminSession(session);
+  const admin = hasPermission(session, 'returns.approve');
+  const canRequest = hasPermission(session, 'returns.request');
 
   const returnsQuery = useQuery({
     queryKey: ['returns', session?.tenantId],
@@ -69,8 +70,8 @@ export function ReturnsView() {
   });
 
   const cashSessionsQuery = useQuery({
-    queryKey: ['cash-sessions', session?.tenantId],
-    queryFn: () => getCashSessions(session?.tenantId ?? '', session?.accessToken ?? ''),
+    queryKey: ['payment-cash-sessions', session?.tenantId],
+    queryFn: () => getPaymentCashSessions(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session && admin),
   });
 
@@ -235,10 +236,7 @@ export function ReturnsView() {
     lookupMutation.mutate(query);
   }
 
-  function updateSelection(
-    itemId: string,
-    patch: Partial<SelectionState[string]>,
-  ) {
+  function updateSelection(itemId: string, patch: Partial<SelectionState[string]>) {
     setSelections((current) => ({
       ...current,
       [itemId]: buildNextSelection(current[itemId], patch),
@@ -301,7 +299,9 @@ export function ReturnsView() {
         <SummaryCard label="Pendientes" value={pendingCount.toString()} />
         <SummaryCard
           label="Completadas"
-          value={returnRequests.filter((request) => request.status === 'COMPLETED').length.toString()}
+          value={returnRequests
+            .filter((request) => request.status === 'COMPLETED')
+            .length.toString()}
         />
         <SummaryCard
           label="Monto pendiente"
@@ -313,179 +313,183 @@ export function ReturnsView() {
         />
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Crear solicitud</CardTitle>
-          <CardDescription>
-            Busca por numero de factura, e-NCF o numero de orden cobrada.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <form onSubmit={submitLookup} className="flex flex-col gap-3 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="bg-white pl-9"
-                placeholder="Ejemplo: RIV-E32-000009 u ORD-202606..."
-              />
-            </div>
-            <Button type="submit" disabled={lookupMutation.isPending}>
-              <Search className="h-4 w-4" />
-              {lookupMutation.isPending ? 'Buscando...' : 'Buscar'}
-            </Button>
-          </form>
+      {canRequest ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Crear solicitud</CardTitle>
+            <CardDescription>
+              Busca por numero de factura, e-NCF o numero de orden cobrada.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <form onSubmit={submitLookup} className="flex flex-col gap-3 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="bg-white pl-9"
+                  placeholder="Ejemplo: RIV-E32-000009 u ORD-202606..."
+                />
+              </div>
+              <Button type="submit" disabled={lookupMutation.isPending}>
+                <Search className="h-4 w-4" />
+                {lookupMutation.isPending ? 'Buscando...' : 'Buscar'}
+              </Button>
+            </form>
 
-          {selectedInvoice ? (
-            <div className="grid gap-5 xl:grid-cols-[1.45fr_0.75fr]">
-              <div className="space-y-3">
-                <div className="rounded-md border border-border bg-zinc-50 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Factura</p>
-                      <h2 className="mt-1 text-xl font-semibold">{selectedInvoice.invoiceNumber}</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {selectedInvoice.customer?.name ?? 'Consumidor final'} ·{' '}
-                        {formatDate(selectedInvoice.issuedAt ?? selectedInvoice.createdAt)}
-                      </p>
+            {selectedInvoice ? (
+              <div className="grid gap-5 xl:grid-cols-[1.45fr_0.75fr]">
+                <div className="space-y-3">
+                  <div className="rounded-md border border-border bg-zinc-50 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Factura</p>
+                        <h2 className="mt-1 text-xl font-semibold">
+                          {selectedInvoice.invoiceNumber}
+                        </h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {selectedInvoice.customer?.name ?? 'Consumidor final'} ·{' '}
+                          {formatDate(selectedInvoice.issuedAt ?? selectedInvoice.createdAt)}
+                        </p>
+                      </div>
+                      <div className="text-left md:text-right">
+                        <Badge variant={getStatusVariant(selectedInvoice.status)}>
+                          {translateStatus(selectedInvoice.status)}
+                        </Badge>
+                        <p className="mt-2 text-lg font-semibold">
+                          {formatCurrency(Number(selectedInvoice.total))}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-left md:text-right">
-                      <Badge variant={getStatusVariant(selectedInvoice.status)}>
-                        {translateStatus(selectedInvoice.status)}
-                      </Badge>
-                      <p className="mt-2 text-lg font-semibold">
-                        {formatCurrency(Number(selectedInvoice.total))}
-                      </p>
-                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {selectedInvoice.items.map((item) => {
+                      const selection = selections[item.id] ?? {
+                        selected: false,
+                        quantity: item.remainingQuantity,
+                        restock: true,
+                      };
+                      const remaining = Number(item.remainingQuantity);
+                      const step = item.product ? getQuantityStep(item.product) : 0.01;
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={cn(
+                            'rounded-md border border-border bg-white p-4',
+                            !item.canReturn && 'opacity-60',
+                          )}
+                        >
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <label className="flex min-w-0 items-start gap-3">
+                              <input
+                                type="checkbox"
+                                className="mt-1 h-4 w-4 accent-primary"
+                                checked={selection.selected}
+                                disabled={!item.canReturn}
+                                onChange={(event) =>
+                                  updateSelection(item.id, { selected: event.target.checked })
+                                }
+                              />
+                              <span className="min-w-0">
+                                <span className="block text-sm font-semibold text-zinc-950">
+                                  {item.description}
+                                </span>
+                                <span className="mt-1 block text-xs text-muted-foreground">
+                                  Vendido: {formatQuantity(item.quantity)} · Disponible:{' '}
+                                  {formatQuantity(item.remainingQuantity)} · Devuelto/reservado:{' '}
+                                  {formatQuantity(item.returnedQuantity)}
+                                </span>
+                              </span>
+                            </label>
+                            <div className="grid gap-2 sm:grid-cols-[130px_1fr] lg:w-[300px]">
+                              <Input
+                                type="number"
+                                min={step}
+                                max={remaining || undefined}
+                                step={step}
+                                value={selection.quantity}
+                                disabled={!selection.selected || !item.canReturn}
+                                onChange={(event) =>
+                                  updateSelection(item.id, { quantity: event.target.value })
+                                }
+                                className="bg-white"
+                                aria-label={`Cantidad a devolver de ${item.description}`}
+                              />
+                              <label className="flex h-10 items-center gap-2 rounded-md border border-border bg-zinc-50 px-3 text-sm">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 accent-primary"
+                                  checked={selection.restock}
+                                  disabled={!selection.selected || !item.productId}
+                                  onChange={(event) =>
+                                    updateSelection(item.id, { restock: event.target.checked })
+                                  }
+                                />
+                                Regresar al almacen
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  {selectedInvoice.items.map((item) => {
-                    const selection = selections[item.id] ?? {
-                      selected: false,
-                      quantity: item.remainingQuantity,
-                      restock: true,
-                    };
-                    const remaining = Number(item.remainingQuantity);
-                    const step = item.product ? getQuantityStep(item.product) : 0.01;
+                <div className="space-y-4 rounded-md border border-primary/35 bg-primary/5 p-4">
+                  <div>
+                    <Label htmlFor="returnReason">Motivo de devolucion</Label>
+                    <textarea
+                      id="returnReason"
+                      value={reason}
+                      onChange={(event) => setReason(event.target.value)}
+                      className="mt-2 min-h-28 w-full rounded-md border border-input bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      maxLength={500}
+                      placeholder="Ejemplo: producto equivocado, cliente cambio la medida o material defectuoso."
+                    />
+                  </div>
 
-                    return (
-                      <div
-                        key={item.id}
-                        className={cn(
-                          'rounded-md border border-border bg-white p-4',
-                          !item.canReturn && 'opacity-60',
-                        )}
-                      >
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                          <label className="flex min-w-0 items-start gap-3">
-                            <input
-                              type="checkbox"
-                              className="mt-1 h-4 w-4 accent-primary"
-                              checked={selection.selected}
-                              disabled={!item.canReturn}
-                              onChange={(event) =>
-                                updateSelection(item.id, { selected: event.target.checked })
-                              }
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-sm font-semibold text-zinc-950">
-                                {item.description}
-                              </span>
-                              <span className="mt-1 block text-xs text-muted-foreground">
-                                Vendido: {formatQuantity(item.quantity)} · Disponible:{' '}
-                                {formatQuantity(item.remainingQuantity)} · Devuelto/reservado:{' '}
-                                {formatQuantity(item.returnedQuantity)}
-                              </span>
-                            </span>
-                          </label>
-                          <div className="grid gap-2 sm:grid-cols-[130px_1fr] lg:w-[300px]">
-                            <Input
-                              type="number"
-                              min={step}
-                              max={remaining || undefined}
-                              step={step}
-                              value={selection.quantity}
-                              disabled={!selection.selected || !item.canReturn}
-                              onChange={(event) =>
-                                updateSelection(item.id, { quantity: event.target.value })
-                              }
-                              className="bg-white"
-                              aria-label={`Cantidad a devolver de ${item.description}`}
-                            />
-                            <label className="flex h-10 items-center gap-2 rounded-md border border-border bg-zinc-50 px-3 text-sm">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 accent-primary"
-                                checked={selection.restock}
-                                disabled={!selection.selected || !item.productId}
-                                onChange={(event) =>
-                                  updateSelection(item.id, { restock: event.target.checked })
-                                }
-                              />
-                              Regresar al almacen
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                  <div>
+                    <Label htmlFor="refundMethod">Metodo de reembolso</Label>
+                    <select
+                      id="refundMethod"
+                      value={refundMethod}
+                      onChange={(event) => setRefundMethod(event.target.value)}
+                      className="mt-2 h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+                    >
+                      <option value="CASH">Efectivo</option>
+                      <option value="CARD">Tarjeta</option>
+                      <option value="TRANSFER">Transferencia</option>
+                      <option value="CHECK">Cheque</option>
+                      <option value="OTHER">Otro</option>
+                    </select>
+                  </div>
 
-              <div className="space-y-4 rounded-md border border-primary/35 bg-primary/5 p-4">
-                <div>
-                  <Label htmlFor="returnReason">Motivo de devolucion</Label>
-                  <textarea
-                    id="returnReason"
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
-                    className="mt-2 min-h-28 w-full rounded-md border border-input bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    maxLength={500}
-                    placeholder="Ejemplo: producto equivocado, cliente cambio la medida o material defectuoso."
-                  />
-                </div>
+                  <div className="rounded-md bg-zinc-950 p-4 text-white">
+                    <p className="text-sm text-zinc-300">Monto estimado a devolver</p>
+                    <p className="mt-2 text-3xl font-bold">{formatCurrency(refundPreview)}</p>
+                    <p className="mt-2 text-xs text-zinc-400">
+                      El backend recalcula el monto exacto usando la factura original.
+                    </p>
+                  </div>
 
-                <div>
-                  <Label htmlFor="refundMethod">Metodo de reembolso</Label>
-                  <select
-                    id="refundMethod"
-                    value={refundMethod}
-                    onChange={(event) => setRefundMethod(event.target.value)}
-                    className="mt-2 h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+                  <Button
+                    type="button"
+                    className="h-12 w-full text-base"
+                    onClick={() => createMutation.mutate()}
+                    disabled={createMutation.isPending || !selectedItems.length}
                   >
-                    <option value="CASH">Efectivo</option>
-                    <option value="CARD">Tarjeta</option>
-                    <option value="TRANSFER">Transferencia</option>
-                    <option value="CHECK">Cheque</option>
-                    <option value="OTHER">Otro</option>
-                  </select>
+                    <RotateCcw className="h-5 w-5" />
+                    {createMutation.isPending ? 'Creando solicitud...' : 'Solicitar devolucion'}
+                  </Button>
                 </div>
-
-                <div className="rounded-md bg-zinc-950 p-4 text-white">
-                  <p className="text-sm text-zinc-300">Monto estimado a devolver</p>
-                  <p className="mt-2 text-3xl font-bold">{formatCurrency(refundPreview)}</p>
-                  <p className="mt-2 text-xs text-zinc-400">
-                    El backend recalcula el monto exacto usando la factura original.
-                  </p>
-                </div>
-
-                <Button
-                  type="button"
-                  className="h-12 w-full text-base"
-                  onClick={() => createMutation.mutate()}
-                  disabled={createMutation.isPending || !selectedItems.length}
-                >
-                  <RotateCcw className="h-5 w-5" />
-                  {createMutation.isPending ? 'Creando solicitud...' : 'Solicitar devolucion'}
-                </Button>
               </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -601,14 +605,19 @@ function ReturnRequestCard({
           </p>
         </div>
         <div className="flex items-center gap-2 sm:justify-end">
-          <Badge variant={getStatusVariant(request.status)}>{translateStatus(request.status)}</Badge>
+          <Badge variant={getStatusVariant(request.status)}>
+            {translateStatus(request.status)}
+          </Badge>
           <span className="text-sm font-bold">{formatCurrency(Number(request.refundAmount))}</span>
         </div>
       </div>
 
       <div className="mt-4 space-y-2">
         {request.items.map((item) => (
-          <div key={item.id} className="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2">
+          <div
+            key={item.id}
+            className="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2"
+          >
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{item.description}</p>
               <p className="text-xs text-muted-foreground">
@@ -616,7 +625,9 @@ function ReturnRequestCard({
                 {item.restock ? 'regresa al almacen' : 'no regresa al almacen'}
               </p>
             </div>
-            <span className="shrink-0 text-sm font-semibold">{formatCurrency(Number(item.total))}</span>
+            <span className="shrink-0 text-sm font-semibold">
+              {formatCurrency(Number(item.total))}
+            </span>
           </div>
         ))}
       </div>
@@ -671,7 +682,7 @@ function DecisionModal({
   adminNote: string;
   refundMethod: string;
   cashSessionId: string;
-  openCashSessions: CashSession[];
+  openCashSessions: PaymentCashSession[];
   isPending: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -699,7 +710,8 @@ function DecisionModal({
                   {approving ? 'Aprobar devolucion' : 'Rechazar devolucion'}
                 </h2>
                 <p className="mt-1 text-sm leading-5 text-zinc-700">
-                  Factura {target.invoice.invoiceNumber} · {formatCurrency(Number(target.refundAmount))}
+                  Factura {target.invoice.invoiceNumber} ·{' '}
+                  {formatCurrency(Number(target.refundAmount))}
                 </p>
               </div>
             </div>
@@ -835,6 +847,8 @@ function getSelectedItems(invoice: ReturnInvoiceLookup, selections: SelectionSta
     }))
     .filter(({ item, selection }) => {
       const quantity = Number(selection?.quantity ?? 0);
-      return Boolean(selection?.selected && item.canReturn && Number.isFinite(quantity) && quantity > 0);
+      return Boolean(
+        selection?.selected && item.canReturn && Number.isFinite(quantity) && quantity > 0,
+      );
     });
 }

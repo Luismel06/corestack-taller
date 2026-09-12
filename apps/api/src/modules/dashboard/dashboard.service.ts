@@ -684,6 +684,7 @@ export class DashboardService {
       })),
       recentInventoryAlerts,
       salesSeries: this.buildSalesSeries(invoicesForSeries, returnsForSeries, now),
+      salesLast7Days: this.buildDailySalesSeries(invoicesForSeries, returnsForSeries, now),
     };
   }
 
@@ -774,6 +775,49 @@ export class DashboardService {
     return Array.from(buckets.entries()).map(([month, total]) => ({
       month,
       total,
+    }));
+  }
+
+  private buildDailySalesSeries(
+    invoices: Array<{
+      issuedAt: Date | null;
+      paidAmount: { toNumber(): number };
+      total: { toNumber(): number };
+    }>,
+    returns: Array<{
+      completedAt: Date | null;
+      refundAmount: { toNumber(): number };
+    }>,
+    now: Date,
+  ) {
+    const buckets = new Map<string, { label: string; total: number }>();
+
+    for (let index = 6; index >= 0; index -= 1) {
+      const date = new Date(now);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - index);
+      buckets.set(businessDateKey(date), {
+        label: new Intl.DateTimeFormat('es-DO', { day: 'numeric', month: 'short' }).format(date),
+        total: 0,
+      });
+    }
+
+    for (const invoice of invoices) {
+      if (!invoice.issuedAt) continue;
+      const bucket = buckets.get(businessDateKey(invoice.issuedAt));
+      if (bucket) bucket.total += this.getInvoicePaidAmount(invoice);
+    }
+
+    for (const returnRequest of returns) {
+      if (!returnRequest.completedAt) continue;
+      const bucket = buckets.get(businessDateKey(returnRequest.completedAt));
+      if (bucket) bucket.total -= this.decimalToNumber(returnRequest.refundAmount);
+    }
+
+    return Array.from(buckets.entries()).map(([date, bucket]) => ({
+      date,
+      label: bucket.label,
+      total: bucket.total,
     }));
   }
 

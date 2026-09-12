@@ -1,10 +1,12 @@
+// Punto único de personalización para cada instalación de la plantilla de taller.
 export const brand = {
-  name: 'ALLPA',
-  tagline: 'Ama, vive y crea',
-  descriptor: 'Exhibidores, empaques y tips',
-  logoPath: '/brand/allpa-logo.png',
-  faviconPath: '/icon.png',
-  loginEmailPlaceholder: 'usuario@allpa.local',
+  name: 'X',
+  tagline: 'Gestión de taller',
+  descriptor: 'Servicio, diagnóstico y control operativo',
+  logoPath: '/brand/x-logo.svg',
+  faviconPath: '/brand/x-logo.svg',
+  loginEmailPlaceholder: 'usuario@x.local',
+  businessType: 'Taller automotriz',
 } as const;
 
 export const platform = {

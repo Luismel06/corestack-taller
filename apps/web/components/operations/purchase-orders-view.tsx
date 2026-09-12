@@ -19,7 +19,6 @@ import {
 import {
   createPurchaseOrder,
   getProducts,
-  getWarehouseProducts,
   getPurchaseOrders,
   getSupplier,
   getSuppliers,
@@ -29,7 +28,7 @@ import {
   type PurchaseOrderPayload,
   type PurchaseOrderStatus,
 } from '@/lib/api';
-import { isAdminSession } from '@/lib/authorization';
+import { hasPermission } from '@/lib/authorization';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import { CancelReasonModal } from './cancel-reason-modal';
 import { ModuleHeader } from './module-header';
@@ -71,15 +70,15 @@ type PurchaseOrderTransitionDialog = {
 export function PurchaseOrdersView() {
   const session = useCurrentSession();
   const queryClient = useQueryClient();
-  const admin = isAdminSession(session);
+  const admin = hasPermission(session, 'purchasing.approve');
+  const canCreate = hasPermission(session, 'purchasing.create');
+  const canCancel = hasPermission(session, 'purchasing.cancel');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'ALL' | PurchaseOrderStatus | 'OVERDUE'>('ALL');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState('');
-  const [destination, setDestination] = useState<'SALES_INVENTORY' | 'WAREHOUSE'>(
-    'SALES_INVENTORY',
-  );
+  const destination = 'SALES_INVENTORY' as const;
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<EditablePurchaseItem[]>([blankItem()]);
@@ -114,11 +113,8 @@ export function PurchaseOrdersView() {
     enabled: Boolean(session && supplierId),
   });
   const productsQuery = useQuery({
-    queryKey: ['products', session?.tenantId, 'purchase-order', destination],
-    queryFn: () =>
-      destination === 'WAREHOUSE'
-        ? getWarehouseProducts(session?.tenantId ?? '', session?.accessToken ?? '')
-        : getProducts(session?.tenantId ?? '', session?.accessToken ?? ''),
+    queryKey: ['products', session?.tenantId, 'purchase-order'],
+    queryFn: () => getProducts(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session),
   });
 
@@ -177,7 +173,6 @@ export function PurchaseOrdersView() {
   function resetForm() {
     setEditingId(null);
     setSupplierId('');
-    setDestination('SALES_INVENTORY');
     setExpectedDeliveryDate('');
     setNotes('');
     setItems([blankItem()]);
@@ -216,7 +211,6 @@ export function PurchaseOrdersView() {
   function editOrder(order: PurchaseOrder) {
     setEditingId(order.id);
     setSupplierId(order.supplierId);
-    setDestination(order.destination);
     setExpectedDeliveryDate(toDateInput(order.expectedDeliveryDate));
     setNotes(order.notes ?? '');
     setItems(
@@ -278,9 +272,10 @@ export function PurchaseOrdersView() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <ModuleHeader
           title="Órdenes de compra"
-          description="Prepara la orden, solicítala y el administrador la valida antes de emitirla al suplidor."
+          description="Prepara la orden, solicítala y la persona autorizada la valida antes de emitirla al suplidor."
         />
         <Button
+          disabled={!canCreate}
           onClick={() => {
             if (showForm) resetForm();
             else setShowForm(true);
@@ -291,18 +286,18 @@ export function PurchaseOrdersView() {
         </Button>
       </div>
 
-      {showForm ? (
+      {showForm && canCreate ? (
         <Card>
           <CardHeader>
             <CardTitle>{editingId ? 'Editar borrador' : 'Crear orden de compra'}</CardTitle>
             <CardDescription>
-              Completa la orden y solicítala. Quedará lista para que un administrador la valide y
-              emita.
+              Completa la orden y solicítala. Quedará lista para que una persona autorizada la
+              valide y emita.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={submitOrder} className="space-y-5">
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-3">
                 <FormField label="Suplidor">
                   <select
                     required
@@ -320,20 +315,11 @@ export function PurchaseOrdersView() {
                 </FormField>
                 <FormField
                   label="Destino de la compra"
-                  hint="Almacén queda separado y no aumenta el inventario de ventas."
+                  hint="Todas las compras alimentan el inventario único."
                 >
-                  <select
-                    required
-                    className={selectClassName}
-                    value={destination}
-                    onChange={(event) => {
-                      setDestination(event.target.value as 'SALES_INVENTORY' | 'WAREHOUSE');
-                      setItems([blankItem()]);
-                    }}
-                  >
-                    <option value="SALES_INVENTORY">Inventario de ventas</option>
-                    <option value="WAREHOUSE">Almacén</option>
-                  </select>
+                  <div className="flex h-10 items-center rounded-md border border-input bg-muted/30 px-3 text-sm font-medium">
+                    Inventario único
+                  </div>
                 </FormField>
                 <FormField
                   label="Fecha estimada de entrega"
@@ -509,8 +495,8 @@ export function PurchaseOrdersView() {
         <CardHeader>
           <CardTitle>Historial y seguimiento</CardTitle>
           <CardDescription>
-            El contador prepara y solicita; el administrador valida, emite, pausa o cancela la
-            orden.
+            El empleado habilitado prepara y solicita; la persona autorizada valida, emite, pausa o
+            cancela la orden.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -529,7 +515,7 @@ export function PurchaseOrdersView() {
                     <p className="truncate text-sm text-muted-foreground">
                       {order.supplierNameSnapshot} · {order.items.length} producto(s)
                       {' · '}
-                      {order.destination === 'WAREHOUSE' ? 'Almacén' : 'Inventario de ventas'}
+                      Inventario
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -547,10 +533,7 @@ export function PurchaseOrdersView() {
                   <Meta label="Creada por" value={order.createdBy.name} />
                   <Meta label="Solicitud" value={formatDateTime(order.requestedAt)} />
                   <Meta label="Entrega estimada" value={formatDate(order.expectedDeliveryDate)} />
-                  <Meta
-                    label="Destino"
-                    value={order.destination === 'WAREHOUSE' ? 'Almacén' : 'Inventario de ventas'}
-                  />
+                  <Meta label="Destino" value="Inventario" />
                 </div>
                 <div className="overflow-x-auto rounded-md border">
                   <Table>
@@ -618,7 +601,7 @@ export function PurchaseOrdersView() {
                       Imprimir / PDF
                     </Link>
                   </Button>
-                  {order.status === 'DRAFT' ? (
+                  {canCreate && order.status === 'DRAFT' ? (
                     <>
                       <Button
                         type="button"
@@ -671,7 +654,7 @@ export function PurchaseOrdersView() {
                       Reanudar
                     </Button>
                   ) : null}
-                  {admin &&
+                  {canCancel &&
                   !['CANCELLED', 'PARTIALLY_RECEIVED', 'RECEIVED'].includes(order.status) ? (
                     <Button
                       type="button"
@@ -873,7 +856,7 @@ function purchaseOrderTransitionDescription(transition: PurchaseOrderTransition)
   return {
     request: 'La orden se enviará al administrador para su validación y emisión.',
     issue: 'La orden se validará y se marcará como emitida al suplidor.',
-    pause: 'La orden quedará detenida hasta que un administrador la reanude.',
+    pause: 'La orden quedará detenida hasta que una persona autorizada la reanude.',
     resume: 'La orden retomará el punto del flujo en que fue pausada.',
     cancel: 'Esta acción conserva el historial y requiere un motivo.',
   }[transition];

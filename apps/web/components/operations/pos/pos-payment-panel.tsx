@@ -13,6 +13,7 @@ import {
 } from './currency-input';
 import { PaymentCalculator } from './payment-calculator';
 import type { PosTotals } from './types';
+import { SplitPayments, type SplitPaymentRow } from './split-payments';
 
 type PosPaymentPanelProps = {
   customers: Customer[];
@@ -25,6 +26,8 @@ type PosPaymentPanelProps = {
   fiscalDocumentValid: boolean;
   fiscalCustomerName?: string | null;
   paymentMethod: string;
+  splitPayments: SplitPaymentRow[];
+  onSplitPaymentsChange: (rows: SplitPaymentRow[]) => void;
   salePaymentMode: 'CASH' | 'CREDIT';
   dueDate?: string | null;
   customerLocked?: boolean;
@@ -53,6 +56,8 @@ export function PosPaymentPanel({
   fiscalDocumentValid,
   fiscalCustomerName,
   paymentMethod,
+  splitPayments,
+  onSplitPaymentsChange,
   salePaymentMode,
   dueDate,
   customerLocked = false,
@@ -83,17 +88,17 @@ export function PosPaymentPanel({
   const fiscalLabel = requiresRnc ? 'E31' : requiresE32Recipient ? 'E32' : 'B01';
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2">
+    <div className="space-y-2">
+      <div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <div className="space-y-1">
             <Label htmlFor="customer">Cliente</Label>
             <select
               id="customer"
               value={customerId}
               disabled={customerLocked}
               onChange={(event) => onCustomerChange(event.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:bg-zinc-100"
+              className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:bg-zinc-100"
             >
               <option value="">Consumidor final</option>
               {customers.map((customer) => (
@@ -111,13 +116,13 @@ export function PosPaymentPanel({
             ) : null}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="documentType">Comprobante</Label>
             <select
               id="documentType"
               value={documentType}
               onChange={(event) => onDocumentTypeChange(event.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {electronicInvoiceRequested ? (
                 <>
@@ -139,6 +144,21 @@ export function PosPaymentPanel({
                 esté activo.
               </p>
             ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="paymentMethod">Método de pago</Label>
+            <select
+              id="paymentMethod"
+              value={paymentMethod}
+              onChange={(event) => onPaymentMethodChange(event.target.value)}
+              className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="CASH">Efectivo</option>
+              <option value="CARD">Tarjeta</option>
+              <option value="TRANSFER">Transferencia</option>
+              <option value="MIXED">Mixto</option>
+            </select>
           </div>
         </div>
 
@@ -201,21 +221,6 @@ export function PosPaymentPanel({
           </div>
         ) : null}
 
-        <div className="mt-3 grid gap-3">
-          <div className="space-y-2">
-            <Label htmlFor="paymentMethod">Metodo de pago</Label>
-            <select
-              id="paymentMethod"
-              value={paymentMethod}
-              onChange={(event) => onPaymentMethodChange(event.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="CASH">Efectivo</option>
-              <option value="CARD">Tarjeta</option>
-              <option value="TRANSFER">Transferencia</option>
-            </select>
-          </div>
-        </div>
         {creditSale ? (
           <div className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
             Venta fiada aprobada. En esta factura se cobra únicamente la inicial de{' '}
@@ -227,120 +232,130 @@ export function PosPaymentPanel({
         ) : null}
       </div>
 
-      <div className="rounded-md border-2 border-primary/40 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3">
-          <div className="flex-1 space-y-2">
-            <Label htmlFor="amountReceived">
-              {cashPayment ? 'Monto entregado por el cliente' : 'Monto pagado'}
-            </Label>
-            <Input
-              id="amountReceived"
-              type="text"
-              inputMode="decimal"
-              value={amountReceived}
-              disabled={!cashPayment}
-              onChange={(event) =>
-                onAmountReceivedChange(sanitizeCurrencyInput(event.target.value))
-              }
-              onBlur={(event) => onAmountReceivedChange(formatCurrencyInput(event.target.value))}
-              onFocus={(event) => event.currentTarget.select()}
-              placeholder={
-                totals.requiredPayment
-                  ? formatCurrencyInputFromNumber(totals.requiredPayment)
-                  : '0.00'
-              }
-              className="h-14 text-2xl font-semibold"
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg border border-zinc-900 bg-zinc-950 px-3 py-2 text-white">
+          <p className="text-xs text-zinc-300">Total a cobrar</p>
+          <p className="mt-0.5 text-lg font-bold">{formatCurrency(totals.requiredPayment)}</p>
+        </div>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-blue-950">
+          <p className="text-xs text-blue-700">Recibido</p>
+          <p className="mt-0.5 text-lg font-bold">{formatCurrency(totals.received)}</p>
+        </div>
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-emerald-800">
+          <p className="text-xs">Devuelta</p>
+          <p className="mt-0.5 text-lg font-bold">{formatCurrency(totals.change)}</p>
+        </div>
+      </div>
+
+      {paymentMethod === 'MIXED' ? (
+        <SplitPayments
+          rows={splitPayments}
+          required={totals.requiredPayment}
+          disabled={isCompleting}
+          onChange={onSplitPaymentsChange}
+        />
+      ) : cashPayment ? (
+        <PaymentCalculator
+          total={totals.requiredPayment}
+          amountReceived={amountReceived}
+          disabled={isCompleting}
+          onAmountChange={onAmountReceivedChange}
+          summary={<PaymentTotalsSummary totals={totals} creditSale={creditSale} message={null} />}
+          action={
+            <CompleteSaleAction
+              disabled={!canCompleteSale || cashInsufficient || isCompleting}
+              isCompleting={isCompleting}
+              onComplete={onCompleteSale}
             />
-          </div>
-          <div className={creditSale ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
-            <div className="rounded-md bg-zinc-950 px-4 py-3 text-white">
-              <p className="text-xs text-zinc-300">Total</p>
-              <p className="text-2xl font-bold">{formatCurrency(totals.total)}</p>
-            </div>
-            {creditSale ? (
-              <div className="rounded-md bg-sky-100 px-4 py-3 text-sky-950">
-                <p className="text-xs">Inicial</p>
-                <p className="text-2xl font-bold">{formatCurrency(totals.requiredPayment)}</p>
-              </div>
-            ) : null}
-            <div className="rounded-md bg-success/10 px-4 py-3 text-success">
-              <p className="text-xs">Devuelta</p>
-              <p className="text-2xl font-bold">{formatCurrency(totals.change)}</p>
-            </div>
-          </div>
-
-          {cashInsufficient ? (
-            <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
-              El efectivo recibido debe cubrir el monto requerido para completar la venta.
-            </p>
-          ) : null}
-
-          <Button
-            type="button"
-            className="h-16 w-full text-lg font-bold"
-            disabled={!canCompleteSale || cashInsufficient || isCompleting}
-            onClick={onCompleteSale}
-          >
-            <ReceiptText className="h-5 w-5" />
-            {isCompleting ? 'Facturando...' : 'Facturar e imprimir'}
-          </Button>
-
-          <p className="text-center text-xs text-muted-foreground">
-            Al confirmar, se emite la factura y se abre el recibo para imprimir automaticamente.
-          </p>
+          }
+        />
+      ) : (
+        <div className="space-y-2 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm">
+          <Label htmlFor="amountReceived">Monto pagado</Label>
+          <Input
+            id="amountReceived"
+            type="text"
+            inputMode="decimal"
+            value={amountReceived}
+            disabled
+            onChange={(event) => onAmountReceivedChange(sanitizeCurrencyInput(event.target.value))}
+            onBlur={(event) => onAmountReceivedChange(formatCurrencyInput(event.target.value))}
+            onFocus={(event) => event.currentTarget.select()}
+            placeholder={totals.requiredPayment ? formatCurrencyInputFromNumber(totals.requiredPayment) : '0.00'}
+            className="h-14 text-2xl font-semibold"
+          />
+          <p className="text-xs text-muted-foreground">Tarjeta y transferencia se registran por el monto exacto requerido.</p>
         </div>
-        {!cashPayment ? (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Tarjeta y transferencia se registran por el monto exacto requerido.
-          </p>
+      )}
+
+      {!cashPayment ? (
+        <PaymentTotalsSummary totals={totals} creditSale={creditSale} message={message} />
+      ) : null}
+
+      {cashInsufficient ? (
+        <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+          El efectivo recibido debe cubrir el monto requerido para completar la venta.
+        </p>
+      ) : null}
+
+      {!cashPayment ? (
+        <CompleteSaleAction
+          disabled={!canCompleteSale || cashInsufficient || isCompleting}
+          isCompleting={isCompleting}
+          onComplete={onCompleteSale}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function PaymentTotalsSummary({
+  totals,
+  creditSale,
+  message,
+}: {
+  totals: PosTotals;
+  creditSale: boolean;
+  message: string | null;
+}) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-zinc-50/60 p-2">
+      <div className="space-y-1 text-[11px]">
+        <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(totals.subtotal)}</span></div>
+        <div className="flex justify-between"><span>Descuento</span><span>{formatCurrency(totals.discount)}</span></div>
+        <div className="flex justify-between"><span>ITBIS</span><span>{formatCurrency(totals.tax)}</span></div>
+        <div className="flex justify-between border-t border-zinc-200 pt-1.5 text-sm font-bold text-zinc-950"><span>Total</span><span>{formatCurrency(totals.total)}</span></div>
+        {creditSale ? (
+          <>
+            <div className="flex justify-between font-semibold text-sky-800"><span>Inicial a cobrar</span><span>{formatCurrency(totals.requiredPayment)}</span></div>
+            <div className="flex justify-between font-semibold text-amber-800"><span>Saldo pendiente</span><span>{formatCurrency(totals.remainingBalance)}</span></div>
+          </>
         ) : null}
+        <div className="flex justify-between font-semibold text-success"><span>Devuelta</span><span>{formatCurrency(totals.change)}</span></div>
       </div>
+      {message ? <p className="mt-1.5 line-clamp-1 text-[10px] text-muted-foreground">{message}</p> : null}
+    </div>
+  );
+}
 
-      <PaymentCalculator
-        total={totals.requiredPayment}
-        amountReceived={amountReceived}
-        disabled={!cashPayment}
-        onAmountChange={onAmountReceivedChange}
-      />
-
-      <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span>Subtotal</span>
-            <span>{formatCurrency(totals.subtotal)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Descuento</span>
-            <span>{formatCurrency(totals.discount)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>ITBIS</span>
-            <span>{formatCurrency(totals.tax)}</span>
-          </div>
-          <div className="flex justify-between border-t border-zinc-200 pt-3 text-xl font-bold text-zinc-950">
-            <span>Total</span>
-            <span>{formatCurrency(totals.total)}</span>
-          </div>
-          {creditSale ? (
-            <>
-              <div className="flex justify-between text-base font-semibold text-sky-800">
-                <span>Inicial a cobrar</span>
-                <span>{formatCurrency(totals.requiredPayment)}</span>
-              </div>
-              <div className="flex justify-between text-base font-semibold text-amber-800">
-                <span>Saldo pendiente</span>
-                <span>{formatCurrency(totals.remainingBalance)}</span>
-              </div>
-            </>
-          ) : null}
-          <div className="flex justify-between text-base font-semibold text-success">
-            <span>Devuelta</span>
-            <span>{formatCurrency(totals.change)}</span>
-          </div>
-        </div>
-
-        {message ? <p className="mt-3 text-sm text-muted-foreground">{message}</p> : null}
-      </div>
+function CompleteSaleAction({
+  disabled,
+  isCompleting,
+  onComplete,
+}: {
+  disabled: boolean;
+  isCompleting: boolean;
+  onComplete: () => void;
+}) {
+  return (
+    <div>
+      <Button type="button" className="h-10 w-full text-xs font-bold" disabled={disabled} onClick={onComplete}>
+        <ReceiptText className="h-4 w-4" />
+        {isCompleting ? 'Facturando...' : 'Facturar e imprimir'}
+      </Button>
+      <p className="mt-1.5 text-center text-[10px] leading-3 text-muted-foreground">
+        Al confirmar, se emite la factura y se abre el recibo para imprimir automáticamente.
+      </p>
     </div>
   );
 }

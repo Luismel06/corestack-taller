@@ -46,8 +46,9 @@ export class CreatePurchaseOrderDto {
   @IsString()
   supplierId: string;
 
+  @IsOptional()
   @IsEnum(PurchaseOrderDestination)
-  destination: PurchaseOrderDestination;
+  destination?: PurchaseOrderDestination;
 
   @IsOptional()
   @IsDateString()

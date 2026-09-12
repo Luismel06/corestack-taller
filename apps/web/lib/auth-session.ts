@@ -11,6 +11,37 @@ export type AuthSession = {
   expiresAt: number;
 };
 
+const sessionChangeEvent = 'corestack-session-changed';
+export function subscribeSession(callback: () => void) {
+  window.addEventListener('storage', callback);
+  window.addEventListener(sessionChangeEvent, callback);
+  return () => {
+    window.removeEventListener('storage', callback);
+    window.removeEventListener(sessionChangeEvent, callback);
+  };
+}
+export function sessionSnapshot() {
+  return typeof window === 'undefined' ? null : window.localStorage.getItem(sessionKey);
+}
+export function updateSessionAccess(
+  access: Pick<AuthSession, 'role' | 'permissions' | 'user'>,
+  expectedToken: string,
+  expectedTenant: string,
+) {
+  const current = getSession();
+  if (
+    !current ||
+    current.accessToken !== expectedToken ||
+    current.tenantId !== expectedTenant ||
+    current.user.id !== access.user.id
+  )
+    return;
+  const next = JSON.stringify({ ...current, ...access });
+  if (next === sessionSnapshot()) return;
+  window.localStorage.setItem(sessionKey, next);
+  window.dispatchEvent(new Event(sessionChangeEvent));
+}
+
 export function saveSession(login: LoginResponse) {
   const membership = login.memberships[0];
 
@@ -29,6 +60,7 @@ export function saveSession(login: LoginResponse) {
   };
 
   window.localStorage.setItem(sessionKey, JSON.stringify(session));
+  window.dispatchEvent(new Event(sessionChangeEvent));
   setSessionCookie(parseExpiresInSeconds(login.expiresIn));
   return session;
 }
@@ -44,6 +76,14 @@ export function getSession() {
     return null;
   }
 
+  const session = parseSessionSnapshot(raw);
+  if (!session) clearSession();
+  return session;
+}
+
+// Pure snapshot parsing: React subscribers must never write storage during render.
+export function parseSessionSnapshot(raw: string | null): AuthSession | null {
+  if (!raw) return null;
   try {
     const session = JSON.parse(raw) as AuthSession;
 
@@ -53,13 +93,11 @@ export function getSession() {
       !session.expiresAt ||
       session.expiresAt <= Date.now()
     ) {
-      clearSession();
       return null;
     }
 
     return session;
   } catch {
-    clearSession();
     return null;
   }
 }
@@ -70,6 +108,7 @@ export function clearSession() {
   }
 
   window.localStorage.removeItem(sessionKey);
+  window.dispatchEvent(new Event(sessionChangeEvent));
   document.cookie = `${sessionCookieName}=; Path=/; Max-Age=0; SameSite=Strict${getSecureCookieAttribute()}`;
 }
 

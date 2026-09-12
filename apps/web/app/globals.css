@@ -21,6 +21,29 @@
   --danger: 0 0% 14%;
 }
 
+@media (pointer: coarse), (min-width: 768px) and (max-width: 1366px) {
+  .workshop-tablet button,
+  .workshop-tablet select,
+  .workshop-tablet input {
+    min-height: 3rem;
+  }
+
+  .workshop-tablet button,
+  .workshop-tablet select {
+    touch-action: manipulation;
+  }
+}
+
+.workshop-tablet-shell .workshop-tablet {
+  font-size: 1rem;
+}
+
+.workshop-tablet-shell .workshop-tablet input,
+.workshop-tablet-shell .workshop-tablet select,
+.workshop-tablet-shell .workshop-tablet textarea {
+  font-size: 1rem;
+}
+
 * {
   box-sizing: border-box;
   scrollbar-color: rgb(100 116 139 / 0.72) transparent;
@@ -55,7 +78,7 @@ body {
   margin: 0;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
 a {
@@ -97,6 +120,14 @@ a {
 }
 
 @layer utilities {
+  .input-select {
+    @apply h-10 w-full rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+
+  .input-textarea {
+    @apply min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+
   .animate-page-enter {
     animation: page-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }

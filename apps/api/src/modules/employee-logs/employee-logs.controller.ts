@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@qorvex/database';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -11,6 +12,7 @@ import { EmployeeLogsService } from './employee-logs.service';
 @Controller('employee-logs')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
 @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN, Role.ACCOUNTANT)
+@RequirePermissions('audit.view')
 export class EmployeeLogsController {
   constructor(private readonly employeeLogsService: EmployeeLogsService) {}
 

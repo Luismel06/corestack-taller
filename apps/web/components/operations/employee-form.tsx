@@ -9,10 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createEmployee, getEmployee, updateEmployee } from '@/lib/api';
+import { createEmployee, getEmployee, getEmployeeUserLimit, updateEmployee } from '@/lib/api';
 import { brand } from '@/lib/brand';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
+import { effectivePermissions, legacyPermissions, roleLabels } from '@qorvex/permissions';
+import { EmployeePermissionsEditor } from './employee-permissions-editor';
 
 const permissionFields = [
   ['canUsePos', 'Usar caja'],
@@ -69,6 +71,12 @@ const defaultState: EmployeeFormState = {
   canTakeOrders: false,
 };
 
+function assignableRole(role: string) {
+  if (['ADMIN', 'CASHIER', 'ORDER_TAKER', 'MECHANIC'].includes(role)) return role;
+  if (['SERVICE_ADVISOR', 'RECEPTIONIST', 'SUPERVISOR'].includes(role)) return 'ORDER_TAKER';
+  return 'ADMIN';
+}
+
 export function EmployeeForm({ employeeId }: { employeeId?: string }) {
   const session = useCurrentSession();
   const router = useRouter();
@@ -76,6 +84,7 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
   const [form, setForm] = useState<EmployeeFormState>(defaultState);
   const [loadedEmployeeId, setLoadedEmployeeId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
 
   const employeeQuery = useQuery({
     queryKey: ['employee', employeeId, session?.tenantId],
@@ -84,11 +93,18 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
     enabled: Boolean(session && employeeId),
   });
 
+  const limitQuery = useQuery({
+    queryKey: ['employee-user-limit', session?.tenantId],
+    queryFn: () => getEmployeeUserLimit(session!.tenantId, session!.accessToken),
+    enabled: Boolean(session),
+  });
+
   useEffect(() => {
     if (employeeQuery.data && loadedEmployeeId !== employeeQuery.data.id) {
       const membership = employeeQuery.data.user.memberships[0];
-      const role = membership?.role ?? 'CASHIER';
+      const role = assignableRole(membership?.role ?? 'CASHIER');
       setLoadedEmployeeId(employeeQuery.data.id);
+      setOverrides(membership?.permissionOverrides ?? {});
       setForm({
         ...defaultState,
         name: employeeQuery.data.user.name,
@@ -98,10 +114,9 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
         role,
         employeeCode: employeeQuery.data.employeeCode ?? '',
         jobTitle: employeeQuery.data.jobTitle ?? '',
-        documentNumber: '',
+        documentNumber: employeeQuery.data.documentNumber ?? '',
         status: employeeQuery.data.status,
         ...Object.fromEntries(permissionFields.map(([key]) => [key, Boolean(membership?.[key])])),
-        ...getForcedPermissionsForRole(role),
       } as EmployeeFormState);
     }
   }, [employeeQuery.data, loadedEmployeeId]);
@@ -114,6 +129,7 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
 
       const payload = {
         ...form,
+        permissionOverrides: overrides,
         password: form.password || undefined,
         documentType: form.documentNumber ? 'CEDULA' : undefined,
         documentNumber: form.documentNumber || undefined,
@@ -126,7 +142,10 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
       return createEmployee(session.tenantId, session.accessToken, payload);
     },
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['auth-access'] });
+      await queryClient.invalidateQueries({ queryKey: ['employee'] });
       await queryClient.invalidateQueries({ queryKey: ['employees'] });
+      await queryClient.invalidateQueries({ queryKey: ['employee-user-limit'] });
       router.push('/employees');
     },
     onError: (error) => {
@@ -143,6 +162,7 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
   }
 
   function setRole(role: string) {
+    setOverrides({});
     setForm((current) => ({
       ...current,
       role,
@@ -165,7 +185,11 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
       <Card>
         <CardHeader>
           <CardTitle>Perfil y permisos</CardTitle>
-          <CardDescription>Los permisos se aplican al tenant actual.</CardDescription>
+          <CardDescription>
+            {limitQuery.data
+              ? `${limitQuery.data.used}/${limitQuery.data.limit} usuarios activos. Crear o reactivar un usuario requiere un cupo disponible.`
+              : 'Máximo de cinco usuarios activos por empresa.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>
@@ -193,9 +217,11 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
             <Field label="Contrasena">
               <Input
                 type="password"
+                required={!employeeId}
+                minLength={8}
                 value={form.password}
                 onChange={(event) => setField('password', event.target.value)}
-                placeholder={employeeId ? 'Dejar vacio para no cambiar' : 'ContrasenaDemo123!'}
+                placeholder={employeeId ? 'Dejar vacío para no cambiar' : 'Mínimo ocho caracteres'}
               />
             </Field>
             <Field label="Rol">
@@ -204,10 +230,11 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
                 onChange={(event) => setRole(event.target.value)}
                 className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
               >
-                <option value="ADMIN">Administrador</option>
-                <option value="ACCOUNTANT">Contador</option>
-                <option value="CASHIER">Cajero</option>
-                <option value="ORDER_TAKER">Ordenanza</option>
+                {Object.entries(roleLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label="Estado">
@@ -241,37 +268,12 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
               />
             </Field>
 
-            <div className="grid gap-3 rounded-md border border-border p-4 md:col-span-2 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="sm:col-span-2 lg:col-span-3">
-                <p className="text-sm font-semibold">Permisos operativos</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Los permisos bloqueados se asignan automáticamente según el rol.
-                </p>
-              </div>
-              {permissionFields.map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={form[key]}
-                    disabled={isPermissionLocked(form.role, key)}
-                    onChange={(event) => setField(key, event.target.checked)}
-                  />
-                  {label}
-                </label>
-              ))}
-              {form.role === 'ACCOUNTANT' ? (
-                <div className="rounded-md border border-primary/20 bg-primary/5 p-3 sm:col-span-2 lg:col-span-3">
-                  <p className="text-sm font-semibold">Acceso contable incluido por el rol</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Consulta facturas de venta, productos, clientes, inventario, suplidores,
-                    cuentas por cobrar, cuentas por pagar y caja. También puede preparar órdenes de
-                    compra y registrar facturas de suplidores, pagos, recepciones y abonos. Las
-                    aprobaciones, cancelaciones y reversiones quedan reservadas al administrador.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-
+            <EmployeePermissionsEditor
+              membership={form}
+              overrides={overrides}
+              onChange={setOverrides}
+              onRestore={() => setRole(form.role)}
+            />
             <div className="md:col-span-2">
               {message ? <p className="mb-3 text-sm text-muted-foreground">{message}</p> : null}
               <Button type="submit" disabled={saveMutation.isPending}>
@@ -295,97 +297,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function getDefaultPermissionsForRole(
-  role: string,
-): Pick<EmployeeFormState, (typeof permissionFields)[number][0]> {
-  const permissions = Object.fromEntries(permissionFields.map(([key]) => [key, false])) as Pick<
+function getDefaultPermissionsForRole(role: string) {
+  return legacyPermissions(effectivePermissions({ role })) as Pick<
     EmployeeFormState,
     (typeof permissionFields)[number][0]
   >;
-
-  if (role === 'ADMIN') {
-    return {
-      ...permissions,
-      canUsePos: true,
-      canOpenCashSession: true,
-      canCloseCashSession: true,
-      canApplyDiscount: true,
-      canCancelInvoice: true,
-      canVoidInvoice: true,
-      canManageProducts: true,
-      canAdjustInventory: true,
-      canManageEmployees: true,
-      canViewReports: true,
-      canManageFiscalSequences: true,
-      canViewCashLogs: true,
-      canReprintReceipt: true,
-      canTakeOrders: true,
-    };
-  }
-
-  if (role === 'ORDER_TAKER') {
-    return {
-      ...permissions,
-      canTakeOrders: true,
-    };
-  }
-
-  if (role === 'ACCOUNTANT') {
-    return {
-      ...permissions,
-      canViewReports: true,
-      canViewCashLogs: true,
-      canReprintReceipt: true,
-    };
-  }
-
-  return {
-    ...permissions,
-    canUsePos: true,
-    canOpenCashSession: true,
-    canCloseCashSession: true,
-    canReprintReceipt: true,
-  };
-}
-
-function isPermissionLocked(role: string, key: (typeof permissionFields)[number][0]) {
-  if (role === 'ORDER_TAKER') {
-    return true;
-  }
-
-  if (role === 'ACCOUNTANT') {
-    return true;
-  }
-
-  if (role === 'CASHIER' && key === 'canTakeOrders') {
-    return true;
-  }
-
-  if (role === 'ADMIN' && key === 'canTakeOrders') {
-    return true;
-  }
-
-  return false;
-}
-
-function getForcedPermissionsForRole(
-  role: string,
-): Partial<Pick<EmployeeFormState, (typeof permissionFields)[number][0]>> {
-  if (role === 'ORDER_TAKER') {
-    return getDefaultPermissionsForRole(role);
-  }
-
-  if (role === 'ACCOUNTANT') {
-    return getDefaultPermissionsForRole(role);
-  }
-
-  if (role === 'CASHIER') {
-    return { canTakeOrders: false };
-  }
-
-  if (role === 'ADMIN') {
-    return { canTakeOrders: true };
-  }
-
-  return {};
 }

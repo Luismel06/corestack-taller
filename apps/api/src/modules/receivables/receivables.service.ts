@@ -1,3 +1,4 @@
+import { requirePermissions } from '../../common/authorization';
 import {
   BadRequestException,
   ConflictException,
@@ -13,7 +14,6 @@ import {
   PaymentStatus,
   Prisma,
   ReturnRequestStatus,
-  Role,
   SalePaymentMode,
 } from '@qorvex/database';
 import { randomUUID } from 'crypto';
@@ -25,13 +25,6 @@ import {
   CreateReceivablePaymentDto,
 } from './dto/receivable-payment.dto';
 
-const receivableRoles: Role[] = [
-  Role.ACCOUNTANT,
-  Role.ADMIN,
-  Role.SUPER_ADMIN,
-  Role.QORVEX_SUPER_ADMIN,
-];
-const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
 const dueSoonDays = 7;
 const excludedReceivableStatuses: InvoiceStatus[] = [
   InvoiceStatus.CANCELLED,
@@ -258,7 +251,7 @@ export class ReceivablesService {
     invoiceId: string,
     dto: CreateReceivablePaymentDto,
   ) {
-    this.requireAccess(tenantId, user);
+    requirePermissions(user, tenantId, 'receivables.view', 'receivables.collect');
     const amount = new Prisma.Decimal(dto.amount).toDecimalPlaces(2);
     const receiptNumber = this.generateReceiptNumber(dto.idempotencyKey);
     if (dto.idempotencyKey) {
@@ -659,25 +652,11 @@ export class ReceivablesService {
   }
 
   private requireAccess(tenantId: string, user: AuthenticatedUser) {
-    const role = this.getRole(tenantId, user);
-    if (!role || !receivableRoles.includes(role)) {
-      throw new ForbiddenException('Accounts receivable access is required.');
-    }
+    requirePermissions(user, tenantId, 'receivables.view');
   }
 
   private requireAdmin(tenantId: string, user: AuthenticatedUser) {
-    const role = this.getRole(tenantId, user);
-    if (!role || !adminRoles.includes(role)) {
-      throw new ForbiddenException('Administrator approval is required.');
-    }
-  }
-
-  private getRole(tenantId: string, user: AuthenticatedUser) {
-    return (
-      user.memberships.find((membership) =>
-        ([Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN] as Role[]).includes(membership.role),
-      )?.role ?? user.memberships.find((membership) => membership.tenantId === tenantId)?.role
-    );
+    requirePermissions(user, tenantId, 'receivables.view', 'receivables.cancel_payment');
   }
 
   private generateReceiptNumber(idempotencyKey?: string) {

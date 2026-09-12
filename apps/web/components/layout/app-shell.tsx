@@ -7,10 +7,18 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { clearSession, getSession, type AuthSession } from '@/lib/auth-session';
+import {
+  clearSession,
+  getSession,
+  subscribeSession,
+  updateSessionAccess,
+  type AuthSession,
+} from '@/lib/auth-session';
 import { canAccessPath, getDefaultPathForSession } from '@/lib/authorization';
 import {
   getCurrentCashSession,
+  getCurrentAccess,
+  ApiError,
   getDashboardSummary,
   getFiscalSequenceAlerts,
   type FiscalSequenceAlert,
@@ -22,11 +30,35 @@ import { GlobalSearch } from './global-search';
 import { MobileNavigation, Sidebar } from './sidebar';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
   const pathname = usePathname();
   const router = useRouter();
+  const accessQuery = useQuery({
+    queryKey: ['auth-access', session?.tenantId, session?.user.id, session?.expiresAt],
+    queryFn: async () => {
+      const current = getSession();
+      if (!current) return null;
+      const access = await getCurrentAccess(current.tenantId, current.accessToken);
+      updateSessionAccess(access, current.accessToken, current.tenantId);
+      return access;
+    },
+    enabled: Boolean(session),
+    refetchInterval: 20_000,
+    retry: false,
+  });
+  useEffect(() => subscribeSession(() => setSession(getSession())), []);
+  useEffect(() => {
+    if (accessQuery.error instanceof ApiError && [401, 403].includes(accessQuery.error.status)) {
+      clearSession();
+      router.replace('/login');
+    }
+  }, [accessQuery.error, router]);
+  useEffect(() => {
+    if (session && !canAccessPath(session, pathname))
+      router.replace(getDefaultPathForSession(session));
+  }, [session, pathname, router]);
 
   const summaryQuery = useQuery({
     queryKey: ['dashboard-summary', session?.tenantId, 'layout'],
@@ -92,7 +124,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         toast.warning('Debes cerrar la caja antes de salir.', {
           description: `${currentCashSession.cashRegister.name} sigue abierta con fondo inicial ${formatCurrency(Number(currentCashSession.openingAmount))}.`,
         });
-        router.push(canAccessPath(session, '/cash/sessions') ? '/cash/sessions' : getDefaultPathForSession(session));
+        if (session.role === 'CASHIER') {
+          router.replace('/pos');
+          return;
+        }
+        router.push(
+          canAccessPath(session, '/cash/sessions') ? '/cash/sessions' : getDefaultPathForSession(session),
+        );
         return;
       }
     } catch (error) {
@@ -125,59 +163,91 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const orderTakingTablet = session.role === 'ORDER_TAKER' && pathname === '/workshop/agenda';
+  const cashierWorkspace = session.role === 'CASHIER' && pathname === '/pos';
+  const invoicePrintWorkspace = /^\/invoices\/[^/]+\/print$/.test(pathname);
+  const focusedWorkspace = orderTakingTablet || cashierWorkspace || invoicePrintWorkspace;
+
   return (
-    <div className="min-h-screen bg-zinc-100">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((current) => !current)} />
+    <div className={cn('min-h-screen bg-zinc-100', orderTakingTablet && 'workshop-tablet-shell')}>
+      {!focusedWorkspace ? (
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed((current) => !current)}
+        />
+      ) : null}
 
       <div
         className={cn(
           'min-h-screen pb-24 transition-[padding] duration-200 lg:pb-0',
-          sidebarCollapsed ? 'lg:pl-[4.5rem]' : 'lg:pl-72',
+          focusedWorkspace && 'pb-0',
+          focusedWorkspace ? 'lg:pl-0' : sidebarCollapsed ? 'lg:pl-[4.5rem]' : 'lg:pl-72',
           'print:pb-0 print:pl-0',
         )}
       >
         <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/90 backdrop-blur print:hidden">
-          <div className="flex h-16 items-center justify-between gap-3 px-3 sm:px-6">
+          <div
+            className={cn(
+              'flex items-center justify-between gap-3 px-3 sm:px-6',
+              cashierWorkspace ? 'h-12' : orderTakingTablet ? 'h-14' : 'h-16',
+            )}
+          >
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="hidden h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary sm:flex">
-                  <Building2 className="h-5 w-5" />
-                </div>
+                {focusedWorkspace ? (
+                  <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg border bg-white">
+                    <img src={brand.logoPath} alt="" className="h-full w-full object-contain p-1" />
+                  </div>
+                ) : (
+                  <div className="hidden h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary sm:flex">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                )}
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{brand.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">Operacion del cliente</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {orderTakingTablet
+                      ? 'Taller'
+                      : cashierWorkspace
+                        ? 'Caja operativa'
+                        : 'Operación del taller'}
+                  </p>
                 </div>
               </div>
             </div>
 
-            <GlobalSearch session={session} />
+            {!orderTakingTablet ? <GlobalSearch session={session} /> : <div className="flex-1" />}
 
             <div className="relative flex shrink-0 items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Notificaciones"
-                className="relative inline-flex"
-                onClick={() => setNotificationsOpen((current) => !current)}
-              >
-                <Bell className="h-5 w-5" />
-                {fiscalSequenceAlertsQuery.data?.length ? (
-                  <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
-                    {fiscalSequenceAlertsQuery.data.length > 9
-                      ? '9+'
-                      : fiscalSequenceAlertsQuery.data.length}
-                  </span>
-                ) : null}
-              </Button>
-              {notificationsOpen ? (
-                <NotificationsPanel
-                  pendingInvoices={summaryQuery.data?.pendingInvoices ?? 0}
-                  lowStockProducts={summaryQuery.data?.lowStockProducts ?? 0}
-                  openCashSessions={summaryQuery.data?.openCashSessions ?? 0}
-                  fiscalSequenceAlerts={fiscalSequenceAlertsQuery.data ?? []}
-                  loading={summaryQuery.isLoading || fiscalSequenceAlertsQuery.isLoading}
-                  onClose={() => setNotificationsOpen(false)}
-                />
+              {!orderTakingTablet ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Notificaciones"
+                    className="relative inline-flex"
+                    onClick={() => setNotificationsOpen((current) => !current)}
+                  >
+                    <Bell className="h-5 w-5" />
+                    {fiscalSequenceAlertsQuery.data?.length ? (
+                      <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
+                        {fiscalSequenceAlertsQuery.data.length > 9
+                          ? '9+'
+                          : fiscalSequenceAlertsQuery.data.length}
+                      </span>
+                    ) : null}
+                  </Button>
+                  {notificationsOpen ? (
+                    <NotificationsPanel
+                      pendingInvoices={summaryQuery.data?.pendingInvoices ?? 0}
+                      lowStockProducts={summaryQuery.data?.lowStockProducts ?? 0}
+                      openCashSessions={summaryQuery.data?.openCashSessions ?? 0}
+                      fiscalSequenceAlerts={fiscalSequenceAlertsQuery.data ?? []}
+                      loading={summaryQuery.isLoading || fiscalSequenceAlertsQuery.isLoading}
+                      onClose={() => setNotificationsOpen(false)}
+                    />
+                  ) : null}
+                </>
               ) : null}
               <div className="flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-2 py-1.5 sm:px-3">
                 <div className="h-8 w-8 rounded-md bg-primary text-center text-sm font-semibold leading-8 text-primary-foreground">
@@ -185,21 +255,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="hidden sm:block">
                   <p className="text-sm font-medium">{session?.user.name ?? brand.name}</p>
-                  <p className="text-xs text-muted-foreground">{translateRole(session?.role) ?? 'Operacion'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {translateRole(session?.role) ?? 'Operacion'}
+                  </p>
                 </div>
               </div>
-              <Button variant="outline" size="icon" aria-label="Cerrar sesion" onClick={handleLogout}>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Cerrar sesion"
+                onClick={handleLogout}
+              >
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>
         </header>
-        <main className="animate-page-enter mx-auto w-full max-w-[92rem] px-3 py-4 print:max-w-none print:p-0 sm:px-6 sm:py-6">
+        <main
+          className={cn(
+            'animate-page-enter mx-auto w-full max-w-[92rem] px-3 py-4 print:max-w-none print:p-0 sm:px-6 sm:py-6',
+            focusedWorkspace && 'max-w-none sm:px-4 sm:py-4 lg:px-5 lg:py-4',
+            cashierWorkspace && 'px-3 py-2 sm:px-4 sm:py-2 md:h-[calc(100dvh-3rem)] md:overflow-hidden lg:px-4 lg:py-2',
+          )}
+        >
           {children}
         </main>
       </div>
 
-      <MobileNavigation />
+      {!focusedWorkspace ? <MobileNavigation /> : null}
     </div>
   );
 }
@@ -247,7 +330,10 @@ function NotificationsPanel({
     ...fiscalSequenceAlerts.map((alert) => ({
       id: alert.id,
       label: getFiscalSequenceAlertLabel(alert),
-      value: alert.missing || alert.exhausted || alert.expired ? 'Revisar' : `${alert.remaining} restantes`,
+      value:
+        alert.missing || alert.exhausted || alert.expired
+          ? 'Revisar'
+          : `${alert.remaining} restantes`,
       href: '/settings/fiscal-sequences',
       detail:
         alert.missing || alert.exhausted || alert.expired
@@ -266,7 +352,9 @@ function NotificationsPanel({
         </button>
       </div>
       {loading ? (
-        <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">Cargando alertas...</p>
+        <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-muted-foreground">
+          Cargando alertas...
+        </p>
       ) : (
         <div className="space-y-2">
           {notifications.map((item) => (
@@ -278,7 +366,9 @@ function NotificationsPanel({
             >
               <span className="min-w-0">
                 <span className="block truncate">{item.label}</span>
-                {item.detail ? <span className="block text-xs text-muted-foreground">{item.detail}</span> : null}
+                {item.detail ? (
+                  <span className="block text-xs text-muted-foreground">{item.detail}</span>
+                ) : null}
               </span>
               <span
                 className={cn(

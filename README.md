@@ -1,6 +1,12 @@
-# CoreStack
+# CoreStack · Taller
 
-CoreStack is a custom SaaS/ERP foundation for multi-company business management in the Dominican Republic. This repository intentionally does not use Odoo, Supabase, fake DGII logic, microservices, or premature infrastructure complexity.
+CoreStack Taller adapts the ERP/POS foundation to automotive workshop operations in the Dominican Republic. The functional specification is `Taller.txt`; the current brand placeholder is configurable in `apps/web/lib/brand.ts`. This workshop requires its own database and fiscal configuration, independent of the customers served by the original template.
+
+See [Workshop implementation and verification](docs/workshop-progress.md) for the implemented workflow, integration tests and outstanding requirements. A passing build does not certify the full specification or DGII integration.
+
+The workshop retains a **five-active-user limit per tenant**, including administrators. Creation/reactivation checks are serialized; inactive employee history is preserved. See [Workshop demo and Supabase migration](docs/workshop-demo.md) for the additive sample loader, backup and the pending transfer to a dedicated Supabase project. Do not run the legacy destructive seed against this demo.
+
+Workshop tasks distinguish initial diagnosis from authorized repair work. Repair tasks link to an approved order line; multiple technicians do not duplicate the billed service. Active/paused time, cancellation reasons and task audit changes are persisted. Older unclassified tasks require explicit review, not an inferred customer authorization. Apply migrations before starting the updated API; do not reseed an existing database to upgrade it.
 
 ## Stack
 
@@ -63,12 +69,13 @@ On macOS/Linux, replace `Copy-Item .env.example .env` with `cp .env.example .env
 - `pnpm db:migrate:deploy`: applies committed migrations.
 - `pnpm db:seed`: loads demo development data.
 - `pnpm db:studio`: opens Prisma Studio.
+- `pnpm --filter @qorvex/api test:workshop`: builds the API and tests workshop authorization, tasks/time, inventory, POS/payments, cash concurrency and delivery against a temporary local PostgreSQL schema.
 
 ## Environment
 
 Use `.env.example` as the template. Do not commit `.env` or real secrets.
 
-The initial API uses `x-tenant-id` as a temporary development tenant context. This is deliberate and must be replaced by real authentication plus membership checks in the next phase.
+The API authenticates with NestJS JWT and checks active membership for `x-tenant-id`, plus role and permission guards. Authentication is currently owned by the API; the Supabase Auth requirement in `Taller.txt` is still outstanding.
 
 For the temporary Supabase PostgreSQL and Vercel deployment flow, see `docs/DEPLOYMENT_SUPABASE_VERCEL.md`.
 
@@ -83,8 +90,8 @@ curl http://localhost:4000/health
 Demo credentials:
 
 ```text
-RIVNU admin: admin@rivnu.local / DemoPassword123!
-RIVNU cashier: cajero@rivnu.local / DemoPassword123!
+Workshop admin: admin@x.local / DemoPassword123!
+Workshop cashier: cajero@x.local / DemoPassword123!
 CoreStack platform: superadmin@corestack.local / DemoPassword123!
 ```
 
@@ -93,11 +100,11 @@ Login and call protected endpoints:
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:4000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@rivnu.local","password":"DemoPassword123!"}' | jq -r .accessToken)
+  -d '{"email":"admin@x.local","password":"DemoPassword123!"}' | jq -r .accessToken)
 
 TENANT_ID=$(curl -s -X POST http://localhost:4000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@rivnu.local","password":"DemoPassword123!"}' | jq -r '.memberships[0].tenantId')
+  -d '{"email":"admin@x.local","password":"DemoPassword123!"}' | jq -r '.memberships[0].tenantId')
 
 curl -H "Authorization: Bearer $TOKEN" \
   -H "x-tenant-id: $TENANT_ID" \

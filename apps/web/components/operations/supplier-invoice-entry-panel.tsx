@@ -31,7 +31,7 @@ import {
   type SupplierInvoice,
   type SupplierInvoiceItem,
 } from '@/lib/api';
-import { isAdminSession } from '@/lib/authorization';
+import { hasPermission } from '@/lib/authorization';
 import type { AuthSession } from '@/lib/auth-session';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { CancelReasonModal } from './cancel-reason-modal';
@@ -63,7 +63,8 @@ export function SupplierInvoiceEntryPanel({
   session: AuthSession;
 }) {
   const queryClient = useQueryClient();
-  const admin = isAdminSession(session);
+  const admin = hasPermission(session, 'inventory.reverse_receipt');
+  const canPrice = hasPermission(session, 'products.manage');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<EntryItem[]>([]);
   const [confirmingEntry, setConfirmingEntry] = useState(false);
@@ -85,7 +86,12 @@ export function SupplierInvoiceEntryPanel({
     queryFn: () => getProducts(session.tenantId, session.accessToken),
   });
   const purchaseOrderQuery = useQuery({
-    queryKey: ['purchase-order', session.tenantId, invoice.purchaseOrderId, 'supplier-invoice-entry'],
+    queryKey: [
+      'purchase-order',
+      session.tenantId,
+      invoice.purchaseOrderId,
+      'supplier-invoice-entry',
+    ],
     queryFn: () =>
       getPurchaseOrder(session.tenantId, session.accessToken, invoice.purchaseOrderId ?? ''),
     enabled: Boolean(invoice.purchaseOrderId),
@@ -154,7 +160,8 @@ export function SupplierInvoiceEntryPanel({
           Number(product.cost) !== Number(invoiceItem.unitCostNet);
         const canRecalculateMargin =
           costChanged &&
-          calculateSuggestedPrice(Number(invoiceItem.unitCostNet), Number(product?.margin)) !== null;
+          calculateSuggestedPrice(Number(invoiceItem.unitCostNet), Number(product?.margin)) !==
+            null;
 
         return {
           invoiceItem,
@@ -168,7 +175,7 @@ export function SupplierInvoiceEntryPanel({
           // When the cost changes, preserving the existing margin is the
           // recommended and default choice. KEEP remains the safe fallback
           // for products without a usable margin.
-          priceDecision: canRecalculateMargin ? 'RECALCULATE_MARGIN' : 'KEEP',
+          priceDecision: canPrice && canRecalculateMargin ? 'RECALCULATE_MARGIN' : 'KEEP',
           manualSalePrice: '',
         };
       }),
@@ -189,7 +196,9 @@ export function SupplierInvoiceEntryPanel({
         throw new Error('Espera a que cargue la comparación con la orden de compra.');
       }
       if (invoice.purchaseOrderId && purchaseOrderQuery.error) {
-        throw new Error('No se pudo validar la factura contra la orden de compra. Intenta de nuevo.');
+        throw new Error(
+          'No se pudo validar la factura contra la orden de compra. Intenta de nuevo.',
+        );
       }
       if (orderReconciliation.hasStructuralIssue) {
         throw new Error(
@@ -202,9 +211,7 @@ export function SupplierInvoiceEntryPanel({
         );
       }
       if (orderReconciliation.requiresReview && !orderReconciliationNote.trim()) {
-        throw new Error(
-          'Explica la diferencia con la orden de compra para que quede auditada.',
-        );
+        throw new Error('Explica la diferencia con la orden de compra para que quede auditada.');
       }
 
       for (const item of selected) {
@@ -247,9 +254,9 @@ export function SupplierInvoiceEntryPanel({
           lotNumber: item.lotNumber.trim() || undefined,
           serialNumber: item.serialNumber.trim() || undefined,
           expirationDate: item.expirationDate || undefined,
-          priceDecision: item.priceDecision,
+          priceDecision: canPrice ? item.priceDecision : 'KEEP',
           manualSalePrice:
-            item.priceDecision === 'MANUAL' ? Number(item.manualSalePrice) : undefined,
+            canPrice && item.priceDecision === 'MANUAL' ? Number(item.manualSalePrice) : undefined,
         })),
       });
     },
@@ -696,7 +703,7 @@ export function SupplierInvoiceEntryPanel({
                       type="radio"
                       name={`price-${item.invoiceItem.id}`}
                       checked={item.priceDecision === 'RECALCULATE_MARGIN'}
-                      disabled={!suggestedPrice}
+                      disabled={!canPrice || !suggestedPrice}
                       onChange={() =>
                         updateItem(item.invoiceItem.id, {
                           priceDecision: 'RECALCULATE_MARGIN',
@@ -718,6 +725,7 @@ export function SupplierInvoiceEntryPanel({
                       <input
                         type="radio"
                         name={`price-${item.invoiceItem.id}`}
+                        disabled={!canPrice}
                         checked={item.priceDecision === 'MANUAL'}
                         onChange={() =>
                           updateItem(item.invoiceItem.id, { priceDecision: 'MANUAL' })
@@ -1172,15 +1180,13 @@ function reconcileInvoiceWithPurchaseOrder(
   }
 
   const missingItems = purchaseOrder.items.filter((item) => !linkedOrderItemIds.has(item.id));
-  const hasStructuralIssue = Boolean(
-    unexpectedInvoiceItems.length || productMismatches.length,
-  );
+  const hasStructuralIssue = Boolean(unexpectedInvoiceItems.length || productMismatches.length);
   const requiresReview = Boolean(
     missingItems.length ||
-      unexpectedInvoiceItems.length ||
-      productMismatches.length ||
-      quantityDifferences.length ||
-      costDifferences.length,
+    unexpectedInvoiceItems.length ||
+    productMismatches.length ||
+    quantityDifferences.length ||
+    costDifferences.length,
   );
 
   return {

@@ -1,3 +1,4 @@
+import { roleLabels as sharedRoleLabels } from '@qorvex/permissions';
 type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'outline';
 
 const statusLabels: Record<string, string> = {
@@ -106,12 +107,14 @@ const statusVariants: Record<string, BadgeVariant> = {
 };
 
 const roleLabels: Record<string, string> = {
+  ...sharedRoleLabels,
   QORVEX_SUPER_ADMIN: 'Super administrador de plataforma',
   SUPER_ADMIN: 'Super admin',
   ADMIN: 'Administrador',
   ACCOUNTANT: 'Contador',
   CASHIER: 'Cajero',
-  ORDER_TAKER: 'Ordenanza',
+  ORDER_TAKER: 'Toma de Órdenes',
+  MECHANIC: 'Mecánico (recurso asignable)',
 };
 
 const documentTypeLabels: Record<string, string> = {
@@ -189,6 +192,10 @@ const inventoryMovementTypeLabels: Record<string, string> = {
   DAMAGE: 'Merma',
   TRANSFER_IN: 'Transferencia recibida',
   TRANSFER_OUT: 'Transferencia enviada',
+  WORK_ORDER_RESERVATION: 'Reserva para OT',
+  WORK_ORDER_CONSUMPTION: 'Entrega de repuesto a taller',
+  WORK_ORDER_RETURN: 'Devolución de repuesto sin usar',
+  WORK_ORDER_RELEASE: 'Liberación de reserva de OT',
 };
 
 const employeeActionLabels: Record<string, string> = {

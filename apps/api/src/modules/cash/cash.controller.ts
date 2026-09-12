@@ -34,6 +34,11 @@ export class CashController {
     return this.cashService.findSessions(tenantId, user);
   }
 
+  @Get('sessions/payment-options')
+  findPaymentSessions(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.cashService.findPaymentSessions(tenantId, user);
+  }
+
   @Get('sessions/current')
   findCurrentSession(@TenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.cashService.findCurrentSession(tenantId, user);

@@ -31,29 +31,32 @@ export class InventoryService {
   }
 
   async createMovement(tenantId: string, userId: string, dto: CreateInventoryMovementDto) {
-    const product = await this.prisma.product.findFirst({
-      where: {
-        id: dto.productId,
-        tenantId,
-      },
-    });
-
-    if (!product) {
-      throw new NotFoundException('Product not found for tenant.');
+    if (dto.type.startsWith('WORK_ORDER_')) {
+      throw new BadRequestException(
+        'Los movimientos de taller deben registrarse desde la OT correspondiente.',
+      );
     }
-
-    if (requiresWholeQuantity(product.unit) && !Number.isInteger(dto.quantity)) {
-      throw new BadRequestException('Product unit requires whole inventory quantities.');
-    }
-
     const signedQuantity = this.getSignedQuantity(dto.type, dto.quantity);
 
     const movement = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "Product" WHERE "id" = ${dto.productId} AND "tenantId" = ${tenantId} FOR UPDATE
+      `;
+      if (locked.length !== 1) throw new NotFoundException('Product not found for tenant.');
+      const product = await tx.product.findUniqueOrThrow({ where: { id: dto.productId } });
+      if (requiresWholeQuantity(product.unit) && !Number.isInteger(dto.quantity)) {
+        throw new BadRequestException('Product unit requires whole inventory quantities.');
+      }
       const previousStock = product.stock;
       const newStock = previousStock + signedQuantity;
 
       if (newStock < 0) {
         throw new BadRequestException('Inventory movement would leave product stock below zero.');
+      }
+      if (newStock < product.reservedStock) {
+        throw new BadRequestException(
+          'El ajuste no puede utilizar existencias reservadas para otras órdenes.',
+        );
       }
 
       const movement = await tx.inventoryMovement.create({
@@ -100,12 +103,12 @@ export class InventoryService {
 
   private getSignedQuantity(type: InventoryMovementType, quantity: number) {
     const negativeMovementTypes: InventoryMovementType[] = [
-        InventoryMovementType.OUTBOUND,
-        InventoryMovementType.SALE,
-        InventoryMovementType.ADJUSTMENT_OUT,
-        InventoryMovementType.DAMAGE,
-        InventoryMovementType.TRANSFER_OUT,
-      ];
+      InventoryMovementType.OUTBOUND,
+      InventoryMovementType.SALE,
+      InventoryMovementType.ADJUSTMENT_OUT,
+      InventoryMovementType.DAMAGE,
+      InventoryMovementType.TRANSFER_OUT,
+    ];
 
     if (negativeMovementTypes.includes(type)) {
       return -quantity;

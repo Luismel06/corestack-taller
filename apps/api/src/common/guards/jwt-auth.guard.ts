@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { MembershipStatus, UserStatus } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedRequest } from '../types/authenticated-request';
+import { effectivePermissions, legacyPermissions } from '@qorvex/permissions';
 
 type JwtPayload = {
   sub: string;
@@ -41,7 +42,7 @@ export class JwtAuthGuard implements CanActivate {
         id: payload.sub,
       },
       include: {
-        memberships: true,
+        memberships: { include: { tenant: { select: { status: true } } } },
       },
     });
 
@@ -55,7 +56,10 @@ export class JwtAuthGuard implements CanActivate {
       name: user.name,
       status: user.status,
       memberships: user.memberships
-        .filter((membership) => membership.status === MembershipStatus.ACTIVE)
+        .filter(
+          (membership) =>
+            membership.status === MembershipStatus.ACTIVE && membership.tenant.status === 'ACTIVE',
+        )
         .map((membership) => ({
           id: membership.id,
           tenantId: membership.tenantId,
@@ -75,6 +79,8 @@ export class JwtAuthGuard implements CanActivate {
           canViewCashLogs: membership.canViewCashLogs,
           canReprintReceipt: membership.canReprintReceipt,
           canTakeOrders: membership.canTakeOrders,
+          permissionOverrides: membership.permissionOverrides,
+          ...legacyPermissions(effectivePermissions(membership)),
         })),
     };
 

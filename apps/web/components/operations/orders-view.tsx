@@ -64,7 +64,6 @@ type WindowWithBarcodeDetector = Window &
   typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor };
 
 type OrderDestination = 'CASH_SALE' | 'QUOTATION';
-type InventorySource = 'SALES_INVENTORY' | 'WAREHOUSE';
 const finalDiscountCustomerId = '__FINAL_DISCOUNT_10__';
 const finalPreferredCustomerId = '__FINAL_PREFERRED_18__';
 
@@ -171,7 +170,7 @@ export function OrdersView() {
   const editToastShownRef = useRef<string | null>(null);
 
   const [destination, setDestination] = useState<OrderDestination>('CASH_SALE');
-  const [inventorySource, setInventorySource] = useState<InventorySource>('SALES_INVENTORY');
+  const inventorySource = 'SALES_INVENTORY' as const;
   const [electronicInvoiceRequested, setElectronicInvoiceRequested] = useState(false);
   const [ecfRecipientEmail, setEcfRecipientEmail] = useState('');
   const [clientName, setClientName] = useState('');
@@ -287,7 +286,6 @@ export function OrdersView() {
 
         // Cargar datos
         setDestination('QUOTATION');
-        setInventorySource(order.inventorySource ?? 'SALES_INVENTORY');
         setElectronicInvoiceRequested(order.electronicInvoiceRequested);
         setClientName(order.clientName || '');
         setCustomerId(order.customerId || getSpecialCustomerValue(order.priceLevel));
@@ -374,7 +372,8 @@ export function OrdersView() {
           return leftStartsWithSearch ? -1 : 1;
         }
 
-        const balanceDifference = Number(right.creditBalance ?? 0) - Number(left.creditBalance ?? 0);
+        const balanceDifference =
+          Number(right.creditBalance ?? 0) - Number(left.creditBalance ?? 0);
         if (balanceDifference) return balanceDifference;
         return left.name.localeCompare(right.name, 'es');
       })
@@ -441,12 +440,7 @@ export function OrdersView() {
         throw new Error('Sesion requerida.');
       }
 
-      return getOrderProductByBarcode(
-        session.tenantId,
-        session.accessToken,
-        code,
-        inventorySource,
-      );
+      return getOrderProductByBarcode(session.tenantId, session.accessToken, code, inventorySource);
     },
     onSuccess: (product) => {
       const added = addProduct(product);
@@ -562,7 +556,6 @@ export function OrdersView() {
             : `Ticket pendiente ${order.orderNumber} enviado a caja. No es una factura fiscal.`;
       setMessage(successMessage);
       setCart([]);
-      setInventorySource('SALES_INVENTORY');
       setElectronicInvoiceRequested(false);
       setEcfRecipientEmail('');
       setNotes('');
@@ -736,7 +729,9 @@ export function OrdersView() {
 
   function handleClientNameChange(nextClientName: string) {
     const registeredCustomerId = getRegisteredCustomerId(customerId);
-    const currentCustomer = activeCustomers.find((customer) => customer.id === registeredCustomerId);
+    const currentCustomer = activeCustomers.find(
+      (customer) => customer.id === registeredCustomerId,
+    );
 
     // Al cambiar manualmente el texto, se desasocia el cliente seleccionado
     // para nunca adjudicar una orden a otra persona por coincidencia parcial.
@@ -777,19 +772,6 @@ export function OrdersView() {
         setClientName('');
       }
     }
-  }
-
-  function handleInventorySourceChange(nextInventorySource: InventorySource) {
-    if (nextInventorySource === inventorySource) return;
-    setInventorySource(nextInventorySource);
-    setCart([]);
-    setCategoryFilter('ALL');
-    setBrandFilter('ALL');
-    setMessage(
-      nextInventorySource === 'WAREHOUSE'
-        ? 'Catálogo B2B de almacén seleccionado.'
-        : 'Catálogo de inventario de ventas seleccionado.',
-    );
   }
 
   function enableScanner() {
@@ -1104,41 +1086,6 @@ export function OrdersView() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Origen de la venta</Label>
-                  <div className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-white p-1">
-                    <button
-                      type="button"
-                      disabled={Boolean(editOrderId)}
-                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                        inventorySource === 'SALES_INVENTORY'
-                          ? 'bg-primary text-primary-foreground shadow-sm'
-                          : 'text-zinc-600 hover:bg-zinc-50'
-                      }`}
-                      onClick={() => handleInventorySourceChange('SALES_INVENTORY')}
-                    >
-                      Inventario
-                    </button>
-                    <button
-                      type="button"
-                      disabled={Boolean(editOrderId)}
-                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                        inventorySource === 'WAREHOUSE'
-                          ? 'bg-primary text-primary-foreground shadow-sm'
-                          : 'text-zinc-600 hover:bg-zinc-50'
-                      }`}
-                      onClick={() => handleInventorySourceChange('WAREHOUSE')}
-                    >
-                      Almacén B2B
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {inventorySource === 'WAREHOUSE'
-                      ? 'La venta descontará únicamente las existencias del almacén.'
-                      : 'La venta descontará únicamente el inventario de ventas.'}
-                  </p>
-                </div>
-
                 {destination === 'CASH_SALE' ? (
                   <div className="space-y-3">
                     <label className="flex cursor-pointer items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
@@ -1152,7 +1099,9 @@ export function OrdersView() {
                         className="mt-1 h-4 w-4 rounded border-input accent-primary"
                       />
                       <span>
-                        <span className="block text-sm font-semibold">Factura electrónica (e-CF)</span>
+                        <span className="block text-sm font-semibold">
+                          Factura electrónica (e-CF)
+                        </span>
                         <span className="block text-xs text-muted-foreground">
                           Caja usará E31/E32 y se enviará una copia a facturación y al cliente.
                         </span>
@@ -1160,7 +1109,9 @@ export function OrdersView() {
                     </label>
                     {electronicInvoiceRequested ? (
                       <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-3">
-                        <Label htmlFor="ecfRecipientEmail">Correo del cliente para la copia e-CF</Label>
+                        <Label htmlFor="ecfRecipientEmail">
+                          Correo del cliente para la copia e-CF
+                        </Label>
                         <Input
                           id="ecfRecipientEmail"
                           type="email"
@@ -1171,8 +1122,8 @@ export function OrdersView() {
                           required
                         />
                         <p className="text-xs text-muted-foreground">
-                          Se enviará una copia individual a este correo y otra a
-                          {' '}facturacion@corestack-systems.com.
+                          Se enviará una copia individual a este correo y otra a{' '}
+                          facturacion@corestack-systems.com.
                         </p>
                       </div>
                     ) : null}
@@ -1303,9 +1254,7 @@ export function OrdersView() {
                                       : 'bg-success/10 text-success',
                                   )}
                                 >
-                                  {balance > 0
-                                    ? `Debe ${formatCurrency(balance)}`
-                                    : 'Al dia'}
+                                  {balance > 0 ? `Debe ${formatCurrency(balance)}` : 'Al dia'}
                                 </span>
                               </button>
                             );
@@ -1374,29 +1323,36 @@ export function OrdersView() {
                           id="quotationDocumentNumber"
                           value={quotationDocumentNumber}
                           onChange={(event) => setQuotationDocumentNumber(event.target.value)}
-                          placeholder={quotationDocumentType === 'RNC' ? '123456789' : '00123456789'}
+                          placeholder={
+                            quotationDocumentType === 'RNC' ? '123456789' : '00123456789'
+                          }
                           inputMode="numeric"
                         />
                       </div>
                       {quotationDocumentNumber ? (
                         <p
                           className={
-                            (quotationDocumentType === 'RNC'
-                              ? validateDominicanRnc(quotationDocumentNumber)
-                              : validateDominicanCedula(quotationDocumentNumber))
+                            (
+                              quotationDocumentType === 'RNC'
+                                ? validateDominicanRnc(quotationDocumentNumber)
+                                : validateDominicanCedula(quotationDocumentNumber)
+                            )
                               ? 'text-xs text-success'
                               : 'text-xs text-danger'
                           }
                         >
-                          {(quotationDocumentType === 'RNC'
-                            ? validateDominicanRnc(quotationDocumentNumber)
-                            : validateDominicanCedula(quotationDocumentNumber))
+                          {(
+                            quotationDocumentType === 'RNC'
+                              ? validateDominicanRnc(quotationDocumentNumber)
+                              : validateDominicanCedula(quotationDocumentNumber)
+                          )
                             ? 'Documento válido.'
                             : 'Verifica el dígito verificador dominicano.'}
                         </p>
                       ) : (
                         <p className="text-xs text-muted-foreground">
-                          Puedes dejarlo vacío. Si lo indicas, validaremos la cédula o el RNC antes de guardar.
+                          Puedes dejarlo vacío. Si lo indicas, validaremos la cédula o el RNC antes
+                          de guardar.
                         </p>
                       )}
                     </div>
@@ -1467,9 +1423,7 @@ export function OrdersView() {
                       <Button
                         type="button"
                         size="sm"
-                        variant={
-                          customerId === finalDiscountCustomerId ? 'default' : 'outline'
-                        }
+                        variant={customerId === finalDiscountCustomerId ? 'default' : 'outline'}
                         onClick={() => handleCustomerSelection(finalDiscountCustomerId)}
                       >
                         Descuento 5%
@@ -1477,9 +1431,7 @@ export function OrdersView() {
                       <Button
                         type="button"
                         size="sm"
-                        variant={
-                          customerId === finalPreferredCustomerId ? 'default' : 'outline'
-                        }
+                        variant={customerId === finalPreferredCustomerId ? 'default' : 'outline'}
                         onClick={() => handleCustomerSelection(finalPreferredCustomerId)}
                       >
                         Cliente preferencial 10%
@@ -1489,8 +1441,9 @@ export function OrdersView() {
                 ) : null}
                 {priceLevel !== 'REGULAR' ? (
                   <p className="text-xs font-medium text-emerald-700">
-                    Se aplicara un descuento de {Math.round(getPriceLevelDiscountRate(priceLevel) * 100)}%
-                    {' '}a los productos de esta orden.
+                    Se aplicara un descuento de{' '}
+                    {Math.round(getPriceLevelDiscountRate(priceLevel) * 100)}% a los productos de
+                    esta orden.
                   </p>
                 ) : null}
 
@@ -1757,11 +1710,7 @@ export function OrdersView() {
             >
               Productos
             </Button>
-            <Button
-              type="button"
-              className="h-11 px-4"
-              onClick={() => setMobileSection('order')}
-            >
+            <Button type="button" className="h-11 px-4" onClick={() => setMobileSection('order')}>
               Revisar
             </Button>
           </div>
@@ -1805,9 +1754,7 @@ function PendingOrdersPanel({
                     <Badge variant={getStatusVariant(order.status)}>
                       {translateStatus(order.status)}
                     </Badge>
-                    <Badge variant="outline">
-                      {order.inventorySource === 'WAREHOUSE' ? 'Almacén B2B' : 'Inventario'}
-                    </Badge>
+                    <Badge variant="outline">Inventario</Badge>
                     {order.paymentMode === 'CREDIT' ? (
                       <Badge variant="outline">
                         {order.creditApproval?.status === 'PENDING'

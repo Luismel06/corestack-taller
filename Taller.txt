@@ -1,0 +1,2417 @@
+Quiero que tomes control técnico de este proyecto y lo conviertas en un sistema ERP/POS completo para un taller automotriz de República Dominicana llamado:
+
+SOLUCIONES AUTOMOTRIZ C&R
+
+IMPORTANTE:
+Este proyecto NO es RIVNU y NO debe conectarse, compartir base de datos, usuarios, inventario, facturas, secuencias fiscales, configuración fiscal ni información con RIVNU.
+
+RIVNU es otro cliente y otro proyecto completamente independiente.
+
+Sin embargo, este sistema debe utilizar la misma filosofía tecnológica y arquitectónica que utilizamos en RIVNU:
+
+- Next.js
+- TypeScript
+- NestJS
+- PostgreSQL
+- Supabase
+- Supabase Auth
+- Supabase Storage
+- Tailwind CSS
+- shadcn/ui
+- arquitectura frontend/backend separada cuando corresponda
+- API REST
+- despliegue compatible con la infraestructura actual del proyecto
+- Vercel cuando corresponda según la estructura existente
+
+NO introduzcas otra tecnología principal, ORM, framework de UI o sistema de autenticación si el proyecto ya tiene una solución establecida.
+
+==================================================
+1. PRIMERA TAREA: ANALIZA EL PROYECTO EXISTENTE
+==================================================
+
+Antes de modificar código, analiza por completo la base actual del proyecto.
+
+Inspecciona:
+
+- package.json
+- estructura de carpetas
+- frontend
+- backend
+- rutas
+- layouts
+- componentes
+- hooks
+- services
+- API
+- NestJS modules
+- controllers
+- services
+- DTOs
+- entities/models
+- base de datos
+- migraciones
+- Supabase
+- autenticación
+- almacenamiento
+- variables de entorno
+- middleware
+- guards
+- roles/permisos
+- componentes UI existentes
+- Tailwind config
+- shadcn config
+- fuentes
+- iconografía
+- assets
+- logos
+- tests
+- linting
+- TypeScript config
+- deployment config
+
+No asumas que la estructura existente es perfecta.
+
+Puedes:
+
+- reorganizar carpetas;
+- crear módulos;
+- refactorizar;
+- modificar schema;
+- crear migraciones;
+- reemplazar implementaciones provisionales;
+- extraer lógica compartida;
+- mejorar seguridad;
+- mejorar arquitectura.
+
+Pero NO hagas un rewrite innecesario si partes existentes ya funcionan correctamente.
+
+Primero entiende lo existente, luego adapta la arquitectura.
+
+No quiero solamente un análisis o un plan.
+
+Después del análisis IMPLEMENTA el sistema.
+
+No te detengas después de decirme qué harías.
+
+==================================================
+2. OBJETIVO DEL PRODUCTO
+==================================================
+
+Construir un ERP/POS completo especializado en la operación de un taller automotriz.
+
+El sistema debe cubrir dos dominios integrados dentro de la MISMA aplicación de C&R:
+
+A) GESTIÓN DEL TALLER
+
+- clientes
+- vehículos
+- citas
+- recepción
+- inspección
+- diagnóstico
+- cotización
+- autorización
+- órdenes de trabajo
+- mecánicos
+- bahías de trabajo
+- mano de obra
+- repuestos
+- reparación
+- control de calidad
+- entrega
+- garantías
+- historial del vehículo
+- mantenimiento preventivo
+
+B) ERP / POS
+
+- clientes
+- productos/repuestos
+- servicios
+- inventario
+- proveedores
+- compras
+- cotizaciones
+- POS
+- caja
+- pagos
+- facturación
+- facturación electrónica DGII
+- cuentas por cobrar
+- cuentas por pagar
+- gastos
+- reportes
+- empleados
+- usuarios
+- roles/permisos
+- auditoría
+- configuración empresarial
+
+El usuario debe percibir TODO como un único sistema de Soluciones Automotriz C&R.
+
+==================================================
+3. PRINCIPIO FUNDAMENTAL DEL SISTEMA
+==================================================
+
+En un comercio tradicional el flujo principal suele ser:
+
+Producto
+→ POS
+→ Factura
+→ Pago
+
+En este taller, el flujo principal es:
+
+Cliente
+→ Vehículo
+→ Recepción
+→ Inspección
+→ Diagnóstico
+→ Cotización
+→ Autorización del cliente
+→ Orden de Trabajo
+→ Mecánico
+→ Repuestos + Mano de obra
+→ Reparación
+→ Control de calidad
+→ Facturación
+→ DGII
+→ Pago
+→ Entrega
+→ Historial
+→ Garantía / próximo mantenimiento
+
+La entidad central del dominio automotriz debe ser WORK ORDER / ORDEN DE TRABAJO.
+
+No diseñes el sistema como un POS al que simplemente se le agregaron vehículos.
+
+Diseña un ERP de taller correctamente.
+
+==================================================
+4. REFERENCIA VISUAL OBLIGATORIA
+==================================================
+
+Tienes tres capturas de referencia visual adjuntas.
+
+Son la FUENTE DE VERDAD para la interfaz.
+
+Quiero que la aplicación siga ese lenguaje visual con fidelidad prácticamente pixel-perfect.
+
+NO rediseñes la aplicación.
+
+NO introduzcas otra estética.
+
+Debes replicar:
+
+- sidebar azul marino oscuro;
+- sidebar fija;
+- proporciones;
+- espaciados;
+- bordes;
+- radios;
+- cards;
+- tablas;
+- altura de filas;
+- densidad de información;
+- barra superior;
+- buscador central;
+- botón principal azul;
+- iconos lineales;
+- badges;
+- indicadores;
+- panel lateral derecho;
+- separación de secciones;
+- estados mediante color;
+- tipografía;
+- pesos tipográficos;
+- tamaños;
+- jerarquía;
+- sombras extremadamente sutiles;
+- fondos blancos/grises;
+- estilo de inputs;
+- dropdowns;
+- botones;
+- cards de mecánicos;
+- progress bars;
+- diseño de tablas;
+- hover;
+- selected row;
+- visualización de estados.
+
+Usa exactamente las fuentes disponibles en el proyecto si ya existen.
+
+Inspecciona los assets y utiliza los logos reales que estén disponibles.
+
+No inventes un nuevo branding.
+
+Si existe branding específico de Soluciones Automotriz C&R en assets, úsalo.
+
+Si todavía existe un placeholder como "X Taller", conserva temporalmente su tratamiento visual pero estructura el componente de branding para sustituir fácilmente logo/nombre.
+
+Los estados visuales deben seguir el patrón mostrado:
+
+AZUL:
+Recepción / Diagnóstico / estado informativo.
+
+NARANJA:
+Esperando autorización / atención.
+
+VERDE:
+En reparación / terminado / listo / entrega.
+
+ROJO:
+Errores, vencimientos críticos o bloqueos.
+
+GRIS:
+Estados secundarios, inactivos o neutrales.
+
+Utiliza preferentemente la misma librería de iconos que ya use el proyecto. Si no existe una establecida, usa Lucide de forma consistente.
+
+El diseño debe ser responsive, pero las capturas proporcionadas son la referencia principal para desktop.
+
+==================================================
+5. NAVEGACIÓN PRINCIPAL
+==================================================
+
+Organiza funcionalmente el sistema alrededor de:
+
+Dashboard
+
+Taller
+- Tablero de taller
+- Recepción
+- Órdenes de trabajo
+
+Agenda
+
+Clientes
+
+Vehículos
+
+Cotizaciones
+
+POS
+
+Inventario
+- Productos / Repuestos
+- Categorías
+- Movimientos
+- Stock bajo
+
+Servicios
+- Servicios
+- Tarifas
+
+Compras
+- Proveedores
+- Solicitudes
+- Órdenes de compra
+- Recepciones
+
+Facturación
+- Facturas
+- Comprobantes fiscales
+- Notas de crédito
+- Notas de débito
+- Cuentas por cobrar
+
+Caja
+- Caja actual
+- Cobros
+- Movimientos
+- Cierres
+
+Finanzas
+- Gastos
+- Cuentas por pagar
+- Rentabilidad
+
+Empleados
+- Empleados
+- Mecánicos
+- Comisiones
+
+Reportes
+
+Auditoría
+
+Configuración
+- Empresa
+- Taller
+- Fiscal/DGII
+- Facturación
+- Usuarios
+- Roles
+- Integraciones
+- Métodos de pago
+
+Si para mantener la interfaz limpia conviene agrupar opciones, utiliza menús colapsables manteniendo el lenguaje visual de las referencias.
+
+==================================================
+6. DASHBOARD / TABLERO DEL TALLER
+==================================================
+
+Construye el dashboard siguiendo las capturas.
+
+Debe mostrar al menos:
+
+- órdenes activas
+- vehículos en recepción
+- vehículos en diagnóstico
+- esperando autorización
+- esperando repuestos
+- en reparación
+- control de calidad
+- listos para entrega
+- entregados hoy
+- citas de hoy
+- capacidad del taller
+- ocupación de bahías
+- disponibilidad de mecánicos
+- órdenes vencidas
+- stock bajo
+- ventas del día
+- ventas del mes
+- cuentas por cobrar
+- promedio por orden
+
+Debe existir una vista operacional agrupada por estado similar a las referencias:
+
+Recepción
+Diagnóstico
+Autorización
+En reparación
+Entrega
+
+Cada card debe mostrar datos útiles como:
+
+- placa
+- vehículo
+- año
+- color
+- cliente
+- teléfono
+- mecánico
+- monto estimado
+- hora prometida
+- fecha prometida
+- estado
+- prioridad
+
+==================================================
+7. CLIENTES
+==================================================
+
+Cliente puede ser:
+
+PERSON
+COMPANY
+
+Campos mínimos:
+
+- nombre
+- apellido / razón social
+- cédula
+- RNC
+- teléfono
+- WhatsApp
+- email
+- dirección
+- notas
+- activo
+- tipo
+- límite de crédito
+- saldo
+- condiciones de crédito
+
+Un cliente puede poseer N vehículos.
+
+Soportar empresas con flotillas.
+
+Mostrar:
+
+- vehículos
+- citas
+- órdenes
+- cotizaciones
+- facturas
+- pagos
+- balance
+- historial
+- garantías
+
+==================================================
+8. VEHÍCULOS
+==================================================
+
+Crear entidad Vehicle completa.
+
+Campos:
+
+- owner/customer
+- plate
+- VIN/chassis
+- make
+- model
+- trim
+- year
+- engine
+- transmission
+- fuel_type
+- color
+- current_mileage
+- notes
+- active
+
+Mantener historial de kilometraje.
+
+Cada vehículo debe tener timeline completo:
+
+- visitas
+- recepciones
+- inspecciones
+- diagnósticos
+- trabajos realizados
+- repuestos instalados
+- técnicos
+- facturas
+- fotografías
+- garantías
+- próximos mantenimientos
+
+La búsqueda global debe encontrar vehículos por:
+
+- placa
+- VIN
+- cliente
+- teléfono
+- orden
+
+==================================================
+9. AGENDA Y CITAS
+==================================================
+
+Crear calendario funcional.
+
+Appointment:
+
+- customer
+- vehicle
+- date
+- start_time
+- estimated_duration
+- reason
+- notes
+- advisor
+- mechanic opcional
+- status
+
+Estados:
+
+SCHEDULED
+CONFIRMED
+ARRIVED
+NO_SHOW
+CANCELLED
+CONVERTED_TO_RECEPTION
+
+Permitir:
+
+- crear
+- editar
+- mover
+- cancelar
+- confirmar
+- marcar llegada
+- convertir directamente en recepción
+
+También permitir clientes walk-in sin cita.
+
+==================================================
+10. RECEPCIÓN DEL VEHÍCULO
+==================================================
+
+La recepción debe registrar:
+
+- cliente
+- vehículo
+- fecha/hora entrada
+- kilometraje
+- combustible
+- queja/motivo
+- accesorios entregados
+- objetos dejados
+- condición exterior
+- condición interior
+- testigos encendidos
+- observaciones
+- bahía
+- asesor
+- técnico inicial
+- fecha/hora prometida
+
+Permitir subir:
+
+- fotos
+- videos/documentos si la infraestructura lo permite
+
+Usar Supabase Storage.
+
+Debe existir inspección visual de daños.
+
+Preparar soporte para:
+
+- rayones
+- golpes
+- abolladuras
+- cristales
+- luces
+- neumáticos
+
+La evidencia debe estar asociada a la recepción y conservarse históricamente.
+
+==================================================
+11. INSPECCIÓN
+==================================================
+
+Crear checklist configurable.
+
+Ejemplos:
+
+- aceite motor
+- refrigerante
+- frenos delanteros
+- frenos traseros
+- suspensión
+- dirección
+- neumáticos
+- batería
+- luces
+- correas
+- aire acondicionado
+- sistema eléctrico
+- escape
+
+Estados:
+
+GOOD
+ATTENTION
+REQUIRES_REPAIR
+NOT_INSPECTED
+
+Visual:
+
+verde
+amarillo/naranja
+rojo
+gris
+
+Cada item puede contener:
+
+- comentario
+- evidencia
+- recomendación
+
+==================================================
+12. DIAGNÓSTICO
+==================================================
+
+Registrar:
+
+- queja del cliente
+- técnico
+- pruebas realizadas
+- diagnóstico
+- findings
+- códigos OBD opcionales
+- fotos
+- videos
+- piezas necesarias
+- servicios recomendados
+- prioridad
+- estimación de tiempo
+
+Un diagnóstico puede generar directamente una cotización.
+
+==================================================
+13. CATÁLOGO DE SERVICIOS
+==================================================
+
+Productos físicos y servicios NO son la misma entidad conceptual.
+
+PRODUCT:
+elemento físico controlado por inventario.
+
+SERVICE:
+trabajo/mano de obra.
+
+Service debe incluir:
+
+- code
+- name
+- category
+- description
+- default_price
+- estimated_minutes
+- taxable/tax_class
+- active
+
+Ejemplos:
+
+- diagnóstico
+- cambio de aceite
+- cambio de pastillas
+- cambio de discos
+- alineación
+- balanceo
+- reparación suspensión
+- cambio de batería
+
+Permitir modificar precio dentro de permisos establecidos.
+
+==================================================
+14. COTIZACIONES
+==================================================
+
+Quote puede originarse desde:
+
+- diagnóstico
+- recepción
+- directamente
+
+Debe aceptar líneas:
+
+PRODUCT
+SERVICE
+EXTERNAL_SERVICE
+
+Cada línea:
+
+- description
+- quantity
+- unit_price
+- discount
+- tax
+- total
+- cost cuando aplique
+
+Mostrar:
+
+- subtotal
+- descuento
+- ITBIS
+- otros impuestos si aplican
+- total
+
+Crear versiones de cotizaciones.
+
+NO sobrescribir silenciosamente una cotización ya enviada.
+
+Estados:
+
+DRAFT
+SENT
+PARTIALLY_APPROVED
+APPROVED
+REJECTED
+EXPIRED
+SUPERSEDED
+
+==================================================
+15. AUTORIZACIÓN DEL CLIENTE
+==================================================
+
+Función crítica.
+
+El cliente debe poder:
+
+- aprobar todo
+- aprobar líneas individuales
+- rechazar líneas
+- pedir cambios
+
+Registrar evidencia:
+
+- quién autorizó
+- fecha
+- hora
+- método
+- usuario interno
+- comentario
+- versión de cotización
+
+Métodos posibles:
+
+IN_PERSON
+PHONE
+WHATSAPP
+EMAIL
+DIGITAL
+
+La arquitectura debe quedar preparada para aprobación mediante enlace seguro.
+
+Nunca ejecutar automáticamente trabajos no aprobados.
+
+==================================================
+16. ORDEN DE TRABAJO
+==================================================
+
+WorkOrder es la entidad operacional central.
+
+Debe contener:
+
+- number
+- customer_id
+- vehicle_id
+- reception_id
+- quote_id
+- status
+- priority
+- service_advisor
+- promised_at
+- opened_at
+- completed_at
+- delivered_at
+- mileage_in
+- mileage_out
+- bay
+- notes
+- estimated_total
+- final_total
+
+Estados recomendados:
+
+RECEPTION
+INSPECTION
+DIAGNOSIS
+WAITING_APPROVAL
+APPROVED
+WAITING_PARTS
+IN_REPAIR
+PAUSED
+QUALITY_CONTROL
+READY_FOR_DELIVERY
+INVOICED
+DELIVERED
+CANCELLED
+WARRANTY
+
+Implementa transiciones válidas.
+
+No permitas cambios arbitrarios de estado que rompan el flujo.
+
+Guarda historial de transiciones:
+
+- estado anterior
+- nuevo estado
+- usuario
+- timestamp
+- comentario
+
+==================================================
+17. MECÁNICOS Y ASIGNACIÓN
+==================================================
+
+Crear perfiles de mecánico.
+
+Registrar:
+
+- especialidades
+- disponibilidad
+- horario
+- trabajos activos
+- capacidad
+- horas asignadas
+
+Permitir asignar múltiples técnicos cuando corresponda.
+
+El panel debe mostrar capacidad similar a las capturas:
+
+Miguel Santana
+3 órdenes activas
+90%
+
+Carlos Pérez
+2 órdenes activas
+70%
+
+etc.
+
+La carga debe derivarse de datos reales, no números hardcoded.
+
+==================================================
+18. CONTROL DE TIEMPO
+==================================================
+
+Cada labor asignada debe permitir:
+
+START
+PAUSE
+RESUME
+COMPLETE
+
+Guardar time entries.
+
+Calcular:
+
+- tiempo estimado
+- tiempo efectivo
+- tiempo pausado
+- eficiencia
+- utilización del técnico
+
+No uses solamente un contador en frontend.
+
+La fuente de verdad debe persistirse en backend/database.
+
+==================================================
+19. BAHÍAS DE TRABAJO
+==================================================
+
+Crear Bay/ServiceBay.
+
+Ejemplos:
+
+B1
+B2
+B3
+B4
+
+Estados:
+
+AVAILABLE
+OCCUPIED
+BLOCKED
+MAINTENANCE
+
+Relacionar vehículo/OT con bahía cuando corresponda.
+
+Evitar asignación simultánea incompatible.
+
+==================================================
+20. HALLAZGOS DURANTE REPARACIÓN
+==================================================
+
+Durante una reparación el técnico puede descubrir un problema adicional.
+
+Crear workflow:
+
+Finding
+→ nueva recomendación
+→ cotización adicional/change order
+→ autorización del cliente
+→ agregar trabajos aprobados a OT
+
+Nunca sumar trabajos adicionales directamente a la factura sin autorización.
+
+==================================================
+21. INVENTARIO
+==================================================
+
+Construir inventario ERP completo.
+
+Product:
+
+- SKU
+- barcode
+- part_number
+- OEM_number opcional
+- name
+- description
+- brand
+- category
+- unit
+- cost
+- sale_price
+- tax_class
+- stock
+- minimum_stock
+- location
+- active
+
+Automotive compatibility opcional:
+
+- make
+- model
+- year_from
+- year_to
+- engine
+
+No necesitas duplicar productos por vehículo.
+
+Implementa compatibilidad mediante relaciones.
+
+==================================================
+22. MOVIMIENTOS DE INVENTARIO
+==================================================
+
+Usar ledger/movimientos.
+
+Tipos como:
+
+PURCHASE_RECEIPT
+POS_SALE
+WORK_ORDER_RESERVATION
+WORK_ORDER_CONSUMPTION
+WORK_ORDER_RETURN
+CUSTOMER_RETURN
+SUPPLIER_RETURN
+ADJUSTMENT_IN
+ADJUSTMENT_OUT
+TRANSFER_IN
+TRANSFER_OUT
+
+IMPORTANTE:
+
+Cotizar un repuesto NO debe descontar inventario.
+
+Aprobar una cotización puede reservar inventario.
+
+Consumir/entregar la pieza al técnico es cuando debe producirse el movimiento de consumo según la política implementada.
+
+Una pieza devuelta sin usar debe poder reincorporarse.
+
+Nunca modificar stock directamente sin generar movimiento auditable.
+
+Utiliza transacciones de base de datos para preservar consistencia.
+
+==================================================
+23. PROVEEDORES Y COMPRAS
+==================================================
+
+Supplier:
+
+- name
+- RNC
+- contacts
+- phone
+- email
+- address
+- payment_terms
+- credit_limit
+- balance
+
+Flujo:
+
+Purchase Request
+→ Purchase Order
+→ Goods Receipt
+→ Inventory
+→ Supplier Invoice
+→ Accounts Payable
+→ Payment
+
+Soportar recepción:
+
+- parcial
+- completa
+
+==================================================
+24. POS
+==================================================
+
+C&R necesita POS aunque sea un taller.
+
+Debe permitir vender directamente:
+
+- aceite
+- batería
+- filtros
+- accesorios
+- repuestos
+- servicios rápidos
+
+sin obligar a crear una Orden de Trabajo.
+
+Flujo:
+
+POS
+→ Sale
+→ Invoice
+→ Fiscal document
+→ Payment
+
+El POS y las OT deben utilizar EL MISMO MOTOR CENTRAL DE FACTURACIÓN.
+
+No crear dos sistemas fiscales independientes.
+
+==================================================
+25. FACTURA DESDE ORDEN DE TRABAJO
+==================================================
+
+Flujo:
+
+Work Order
+→ approved services
+→ consumed parts
+→ authorized additional work
+→ Invoice Draft
+→ Fiscal Invoice
+→ Payment
+
+Evitar:
+
+- piezas duplicadas;
+- servicios duplicados;
+- facturar elementos rechazados;
+- volver a facturar una OT ya facturada;
+- modificar silenciosamente una factura fiscal emitida.
+
+Una vez fiscalizada una factura, cambios posteriores deben manejarse mediante los mecanismos fiscales correspondientes, por ejemplo notas de crédito/débito cuando aplique.
+
+==================================================
+26. CAJA
+==================================================
+
+CashRegisterSession:
+
+OPEN
+CLOSED
+
+Registrar:
+
+- usuario
+- fecha apertura
+- monto inicial
+- entradas
+- salidas
+- pagos
+- devoluciones
+- monto esperado
+- monto contado
+- diferencia
+- fecha cierre
+
+Métodos de pago:
+
+CASH
+CARD
+BANK_TRANSFER
+CHECK
+CREDIT
+OTHER
+
+Soportar split payment.
+
+Ejemplo:
+
+Factura RD$20,000
+
+RD$10,000 tarjeta
+RD$5,000 efectivo
+RD$5,000 transferencia
+
+==================================================
+27. CUENTAS POR COBRAR
+==================================================
+
+Soportar:
+
+- ventas a crédito
+- pagos parciales
+- abonos
+- vencimientos
+- saldo por cliente
+- estado de cuenta
+- límite de crédito
+- bloqueo por límite cuando se configure
+- aging
+
+No marcar una factura como pagada si existe saldo pendiente.
+
+==================================================
+28. GASTOS Y CUENTAS POR PAGAR
+==================================================
+
+Registrar gastos:
+
+- alquiler
+- electricidad
+- agua
+- internet
+- nómina
+- herramientas
+- combustible
+- servicios externos
+- mantenimiento
+- gastos menores
+
+Accounts Payable debe integrarse con compras/proveedores.
+
+==================================================
+29. SERVICIOS EXTERNOS
+==================================================
+
+Soportar trabajos enviados a terceros:
+
+- rectificadora
+- pintura
+- tornería
+- alineación externa
+- tapicería
+- otros
+
+Registrar:
+
+- proveedor
+- OT
+- fecha salida
+- fecha retorno
+- costo
+- precio facturado
+- estado
+
+==================================================
+30. CONTROL DE CALIDAD
+==================================================
+
+Antes de READY_FOR_DELIVERY:
+
+crear checklist final.
+
+Ejemplos:
+
+- trabajos completados
+- piezas verificadas
+- fugas
+- fluidos
+- testigos
+- prueba de carretera
+- herramientas retiradas
+- vehículo limpio
+- observaciones
+
+Supervisor puede:
+
+APPROVE
+REJECT_AND_RETURN_TO_REPAIR
+
+==================================================
+31. ENTREGA
+==================================================
+
+Registrar:
+
+- cliente/persona que recibe
+- fecha/hora
+- mileage_out
+- empleado que entrega
+- invoice
+- payment status
+- recomendaciones
+- próxima visita
+- firma/aceptación si se implementa
+
+No permitir entregar normalmente una unidad que todavía tenga bloqueo operativo sin confirmación/autorización de un usuario con permiso.
+
+==================================================
+32. GARANTÍAS
+==================================================
+
+Warranty puede ser:
+
+SERVICE
+PART
+
+Registrar:
+
+- origin_work_order
+- origin_invoice
+- part/service
+- start_date
+- expiration_date
+- mileage_limit
+- conditions
+
+WarrantyClaim debe enlazarse con la reparación original.
+
+Nunca borrar la trazabilidad original.
+
+==================================================
+33. MANTENIMIENTO PREVENTIVO
+==================================================
+
+Permitir programar por:
+
+- fecha
+- kilometraje
+- ambos
+
+Ejemplos:
+
+- aceite
+- filtros
+- frenos
+- batería
+- transmisión
+- coolant
+
+Preparar sistema de recordatorios.
+
+==================================================
+34. REPORTES
+==================================================
+
+Implementar reportes útiles con datos reales.
+
+OPERACIÓN:
+
+- vehículos recibidos
+- vehículos entregados
+- órdenes abiertas
+- órdenes atrasadas
+- tiempo promedio
+- turnaround time
+- capacidad del taller
+
+VENTAS:
+
+- ventas por día
+- semana
+- mes
+- año
+- servicios
+- repuestos
+- ticket promedio
+
+MECÁNICOS:
+
+- órdenes
+- horas
+- eficiencia
+- productividad
+- facturación atribuible
+
+INVENTARIO:
+
+- stock
+- stock bajo
+- rotación
+- productos más utilizados
+- movimientos
+- inventario sin movimiento
+- valoración
+
+FINANZAS:
+
+- ingresos
+- costos
+- gastos
+- cuentas por cobrar
+- cuentas por pagar
+- margen
+
+RENTABILIDAD:
+
+por OT:
+
+revenue
+- parts cost
+- external services cost
+- labor cost where available
+= gross margin
+
+==================================================
+35. AUDITORÍA
+==================================================
+
+Crear AuditLog robusto.
+
+Registrar operaciones críticas:
+
+- login
+- cambio de precios
+- descuento
+- cambio de estado
+- ajustes inventario
+- cancelación
+- devolución
+- facturación
+- nota de crédito
+- cambio fiscal
+- caja
+- permisos
+- eliminación lógica
+- configuraciones
+
+Guardar:
+
+- user
+- action
+- entity
+- entity_id
+- timestamp
+- previous_value cuando corresponda
+- new_value
+- metadata
+- IP/device si la arquitectura lo permite
+
+==================================================
+36. ROLES Y PERMISOS
+==================================================
+
+No implementar únicamente "admin" y "employee".
+
+Crear RBAC granular.
+
+Roles iniciales:
+
+ADMIN
+MANAGER
+SERVICE_ADVISOR
+RECEPTIONIST
+MECHANIC
+SUPERVISOR
+INVENTORY_MANAGER
+CASHIER
+ACCOUNTING
+
+Permisos granulares.
+
+Ejemplos:
+
+workorders.view
+workorders.create
+workorders.assign
+workorders.change_status
+
+quotes.create
+quotes.discount
+quotes.approve_override
+
+inventory.view
+inventory.receive
+inventory.adjust
+
+invoices.create
+invoices.issue
+invoices.credit_note
+
+cash.open
+cash.close
+cash.withdraw
+
+reports.financial
+
+settings.fiscal
+
+Los permisos deben validarse también en backend.
+
+Nunca depender solamente de ocultar botones en frontend.
+
+==================================================
+37. MULTI-SUCURSAL
+==================================================
+
+Inicialmente puede existir una sola sucursal.
+
+Aun así, diseña correctamente las entidades clave para soportar branch_id cuando tenga sentido.
+
+No construyas una complejidad multi-tenant innecesaria en UI ahora.
+
+Pero evita que el diseño de datos haga imposible agregar una segunda sucursal posteriormente.
+
+==================================================
+38. FACTURACIÓN ELECTRÓNICA DGII
+==================================================
+
+ESTA PARTE ES CRÍTICA.
+
+El sistema operará en República Dominicana.
+
+Debe estar diseñado para cumplir la facturación electrónica de la:
+
+DIRECCIÓN GENERAL DE IMPUESTOS INTERNOS (DGII)
+
+No implementes "DGII" solamente como un campo donde el usuario escribe un NCF.
+
+Necesitamos un verdadero módulo fiscal.
+
+Usa como referencia normativa/técnica vigente:
+
+- Ley 32-23 de Facturación Electrónica
+- Decreto 587-24
+- documentación oficial vigente de DGII
+- Formato Comprobante Fiscal Electrónico e-CF v1.0
+- XSD oficiales publicados por DGII
+- documentación de servicios web DGII
+- proceso de certificación de Emisor Electrónico
+
+La documentación DGII debe considerarse la fuente de verdad.
+
+Si alguna especificación del código actual contradice la documentación oficial más reciente, adapta la implementación.
+
+NO inventes reglas fiscales.
+
+==================================================
+39. TIPOS e-CF
+==================================================
+
+Diseña el motor extensible para los tipos oficiales.
+
+Como mínimo implementar correctamente:
+
+E31
+Factura de Crédito Fiscal Electrónica
+
+E32
+Factura de Consumo Electrónica
+
+E33
+Nota de Débito Electrónica
+
+E34
+Nota de Crédito Electrónica
+
+Preparar el modelo para:
+
+E41
+E43
+E44
+E45
+E46
+E47
+
+El e-NCF tiene estructura de 13 caracteres:
+
+E
++
+2 dígitos del tipo
++
+10 dígitos secuenciales
+
+Ejemplo conceptual:
+
+E31XXXXXXXXXX
+
+No inventar números fiscales reales.
+
+Las secuencias deben venir de configuración/rangos autorizados correspondientes al contribuyente.
+
+==================================================
+40. AISLAMIENTO FISCAL DE C&R
+==================================================
+
+Soluciones Automotriz C&R tiene SU PROPIA:
+
+- empresa
+- RNC
+- configuración
+- certificado
+- secuencias
+- ambiente
+- facturas
+- XML
+- respuestas DGII
+
+Nunca utilizar datos fiscales de RIVNU.
+
+No compartir secuencias.
+
+No compartir certificados.
+
+No compartir RNC.
+
+No compartir base de datos.
+
+==================================================
+41. CONFIGURACIÓN FISCAL
+==================================================
+
+Crear configuración segura para:
+
+- company legal name
+- trade name
+- RNC
+- address
+- branch
+- fiscal environment
+- electronic issuer enabled
+- e-NCF ranges
+- certificate configuration
+- DGII service URLs
+- signing configuration
+- retry policy
+
+Separar ambientes:
+
+TEST / CERTIFICATION
+PRODUCTION
+
+Nunca hardcodear secretos.
+
+Usar variables de entorno o un mecanismo seguro.
+
+Nunca guardar private keys o passwords directamente en código.
+
+==================================================
+42. CERTIFICADO Y FIRMA DIGITAL
+==================================================
+
+El e-CF requiere certificado digital según requisitos DGII.
+
+Implementar una abstracción de firma.
+
+FiscalSigner interface/service.
+
+Debe permitir:
+
+- cargar certificado de forma segura
+- firmar XML
+- validar firma
+- controlar expiración
+- mostrar alertas administrativas
+
+NO incluir certificados privados de prueba en Git.
+
+==================================================
+43. XML DGII
+==================================================
+
+Crear generador XML separado del modelo interno.
+
+NO acoplar las entidades de factura directamente al XML.
+
+Usar algo conceptualmente como:
+
+Invoice
+↓
+FiscalDocumentMapper
+↓
+ECFDocument
+↓
+XML Generator
+↓
+XSD Validation
+↓
+Digital Signature
+↓
+DGII Transport
+
+Validar el XML contra los XSD oficiales correspondientes antes del envío.
+
+Persistir:
+
+- XML generado
+- XML firmado
+- tipo
+- e-NCF
+- hash si corresponde
+- timestamps
+- requests/responses relevantes
+- DGII status
+
+==================================================
+44. CICLO DE VIDA FISCAL
+==================================================
+
+Crear estados separados del estado comercial.
+
+Ejemplo:
+
+DRAFT
+READY_TO_SIGN
+SIGNED
+QUEUED
+SUBMITTED
+ACCEPTED
+REJECTED
+ERROR
+CANCELLED/ADJUSTED where applicable
+
+No asumir que porque la factura se creó localmente DGII la aceptó.
+
+Mostrar claramente estado fiscal.
+
+==================================================
+45. INTEGRACIÓN DGII
+==================================================
+
+Crear FiscalProvider / DGIIClient desacoplado.
+
+Responsabilidades:
+
+- autenticación
+- obtención/validación de token según especificación
+- envío
+- consulta
+- respuesta
+- manejo errores
+- retry
+- idempotencia
+- logging seguro
+
+NO hacer que un timeout genere otra factura o consuma otro e-NCF automáticamente.
+
+Los retries deben reenviar la misma operación correctamente cuando la normativa/protocolo lo permita.
+
+==================================================
+46. E32 Y RFCE
+==================================================
+
+Implementar la lógica específica vigente de Facturas de Consumo Electrónicas.
+
+DGII contempla el Resumen de Factura de Consumo Electrónica (RFCE) para Facturas de Consumo Electrónicas E32 menores a DOP$250,000.
+
+La implementación debe seguir el formato XML oficial RFCE y el servicio correspondiente.
+
+Para E32 que alcance/supere la condición indicada por DGII para envío completo, usar el flujo establecido por la documentación oficial.
+
+NO simplificar esto enviando todas exactamente de la misma manera.
+
+Encapsula esta decisión dentro del motor fiscal, no dentro del componente UI.
+
+==================================================
+47. REPRESENTACIÓN IMPRESA
+==================================================
+
+Generar la representación impresa del e-CF de acuerdo con DGII.
+
+Debe incluir los datos fiscalmente requeridos.
+
+Preparar:
+
+- impresión térmica cuando corresponda
+- formato carta/PDF
+- QR/timbre cuando corresponda según DGII
+- descarga
+- reimpresión
+
+Una reimpresión NO debe generar un nuevo e-NCF.
+
+==================================================
+48. NOTAS DE CRÉDITO Y DÉBITO
+==================================================
+
+Una factura fiscal emitida no debe editarse como un documento normal.
+
+Crear flujos para:
+
+E33
+Nota de débito
+
+E34
+Nota de crédito
+
+Deben referenciar correctamente el comprobante original cuando la regulación así lo requiere.
+
+Casos:
+
+- devolución
+- reducción
+- descuento posterior
+- corrección
+- anulación según procedimiento aplicable
+
+Mantener trazabilidad completa.
+
+==================================================
+49. RECEPCIÓN DE e-CF
+==================================================
+
+Diseña el módulo fiscal de forma que también pueda evolucionar para recepción de e-CF de proveedores/receptores electrónicos.
+
+Preparar modelos/servicios para:
+
+- e-CF recibido
+- Acuse de Recibo
+- Aprobación/Rechazo Comercial
+- XML original
+- estados
+
+Si implementar todo esto ahora no es necesario para completar el flujo principal, deja la arquitectura correcta y sin mocks engañosos.
+
+==================================================
+50. NO SIMULAR DGII EN PRODUCCIÓN
+==================================================
+
+Si el repositorio NO contiene:
+
+- certificado válido
+- credenciales
+- RNC autorizado
+- configuración de certificación/producción
+
+NO finjas que DGII respondió "aceptado".
+
+Implementa:
+
+- integración real preparada;
+- cliente DGII;
+- XML;
+- XSD validation;
+- firma;
+- persistencia;
+- ambiente test;
+- estados;
+- errores;
+- UI.
+
+Y marca claramente cuando falta configuración real.
+
+Puedes crear un FakeFiscalProvider únicamente para desarrollo/tests, explícitamente identificado como MOCK.
+
+Jamás utilizarlo silenciosamente en producción.
+
+==================================================
+51. IMPUESTOS
+==================================================
+
+No hardcodear la idea de que absolutamente todo usa la misma tasa.
+
+Crear TaxClass/configuración.
+
+El motor de factura debe calcular de forma consistente:
+
+- subtotal
+- descuentos
+- ITBIS
+- otros impuestos/tasas cuando apliquen
+- total
+
+Los redondeos deben centralizarse.
+
+No repartir lógica de impuestos entre componentes React.
+
+==================================================
+52. FACTURACIÓN CENTRALIZADA
+==================================================
+
+Debe existir UN motor central.
+
+Sources:
+
+POS SALE
+WORK ORDER
+MANUAL INVOICE if authorized
+
+todos producen:
+
+INVOICE
+↓
+FISCAL DOCUMENT
+↓
+DGII
+↓
+PAYMENT
+
+No duplicar lógica fiscal.
+
+==================================================
+53. SEGURIDAD Y CONSISTENCIA
+==================================================
+
+Implementar:
+
+- validation DTOs
+- authorization backend
+- input sanitization
+- database constraints
+- foreign keys
+- unique constraints
+- transactions
+- proper error handling
+- idempotency
+- secure file access
+- RLS cuando corresponda con Supabase
+- audit logs
+- no secrets en frontend
+
+Usa UUIDs si la arquitectura existente ya lo establece.
+
+Crear números humanos separados:
+
+OT-2026-000001
+QT-2026-000001
+INV-2026-000001
+
+No usar IDs internos como números visibles.
+
+==================================================
+54. CONCURRENCIA
+==================================================
+
+Presta especial atención a:
+
+- consumo simultáneo de inventario
+- último producto disponible
+- asignación de bahías
+- apertura/cierre de caja
+- generación de documentos fiscales
+- numeración e-NCF
+- pagos repetidos
+- doble click
+- retry de red
+
+Utiliza constraints, transactions e idempotency keys cuando corresponda.
+
+==================================================
+55. AUDITORÍA DE DATOS FINANCIEROS
+==================================================
+
+No uses hard delete para:
+
+- invoices
+- fiscal documents
+- payments
+- cash movements
+- inventory movements
+- work orders completadas
+- approvals
+
+Diseña cancelaciones/reversiones con trazabilidad.
+
+==================================================
+56. BÚSQUEDA GLOBAL
+==================================================
+
+El buscador superior debe funcionar realmente.
+
+Buscar:
+
+- OT
+- placa
+- VIN
+- cliente
+- teléfono
+- factura
+- cotización
+
+Mostrar resultados útiles y navegación.
+
+==================================================
+57. FILTROS
+==================================================
+
+Implementar filtros reales en:
+
+- órdenes
+- recepción
+- vehículos
+- clientes
+- facturas
+- inventario
+- cotizaciones
+
+Por:
+
+- estado
+- técnico
+- fecha
+- sucursal
+- prioridad
+- pago
+- fiscal status
+
+==================================================
+58. NOTIFICACIONES INTERNAS
+==================================================
+
+Crear sistema de notificaciones para:
+
+- nueva autorización
+- autorización pendiente
+- OT vencida
+- vehículo listo
+- stock bajo
+- pago vencido
+- error DGII
+- e-CF rechazado
+- certificado próximo a vencer
+
+Badge de notificaciones similar a las referencias.
+
+==================================================
+59. WHATSAPP / EMAIL
+==================================================
+
+Diseña adapters para comunicación.
+
+Casos:
+
+- cita
+- recordatorio
+- cotización
+- solicitud de autorización
+- vehículo listo
+- factura
+- próximo mantenimiento
+
+No acoples directamente WhatsApp al dominio.
+
+NotificationProvider abstraction.
+
+Si no existen credenciales, deja proveedor correctamente configurable y usa development provider claramente identificado.
+
+==================================================
+60. DATOS DEMO
+==================================================
+
+Para desarrollo, crea seed data coherente con las pantallas de referencia.
+
+Puedes utilizar datos ficticios similares:
+
+Toyota Corolla
+Hyundai Accent
+Kia Sportage
+Nissan Sentra
+Mitsubishi Lancer
+Chevrolet Captiva
+Suzuki Vitara
+Ford Ranger
+Jeep Grand Cherokee
+Mazda 3
+Toyota Hilux
+
+con clientes y mecánicos ficticios.
+
+Pero:
+
+- nunca mezclar seed con producción;
+- nunca hardcodear métricas del dashboard;
+- todas las métricas deben salir de DB.
+
+==================================================
+61. EXPERIENCIA DE USUARIO
+==================================================
+
+El sistema debe sentirse rápido.
+
+Preferir:
+
+- skeletons
+- optimistic UI solamente donde sea seguro
+- empty states
+- meaningful error states
+- confirmations para acciones destructivas
+- drawers/modals donde encajen con el diseño
+- keyboard-friendly forms
+- responsive tables
+- pagination/server-side filtering para datasets grandes
+
+No recargar páginas completas innecesariamente.
+
+==================================================
+62. MOBILE / TABLET
+==================================================
+
+Aunque desktop es prioridad, mecánicos probablemente usarán teléfonos/tablets.
+
+Las siguientes vistas deben funcionar especialmente bien en móvil:
+
+- Mis trabajos
+- OT
+- diagnóstico
+- inspección
+- fotos
+- iniciar/pausar/finalizar trabajo
+- solicitar repuesto
+- agregar hallazgo
+- control de calidad
+
+==================================================
+63. PERFORMANCE
+==================================================
+
+Evitar:
+
+- N+1 queries
+- traer todos los registros
+- dashboard con 20 requests independientes innecesarios
+- imágenes enormes sin optimización
+
+Usar:
+
+- indexes
+- pagination
+- aggregate queries
+- caching únicamente cuando no comprometa consistencia
+- efficient relation loading
+
+Crear índices especialmente para:
+
+plate
+VIN
+phone
+work_order_number
+invoice_number
+eNCF
+status
+created_at
+customer_id
+vehicle_id
+
+==================================================
+64. TESTS
+==================================================
+
+Crear tests para lógica crítica.
+
+Especialmente:
+
+- totales de factura
+- impuestos
+- descuentos
+- split payments
+- stock
+- reserva/consumo/devolución
+- work order transitions
+- approvals
+- invoicing from WO
+- preventing duplicate invoice
+- fiscal sequence allocation
+- XML mapping
+- fiscal state transitions
+- authorization/permissions
+
+Añade integration/e2e tests donde sea razonable.
+
+==================================================
+65. FLUJOS E2E QUE DEBEN FUNCIONAR
+==================================================
+
+FLUJO 1:
+
+Crear cliente
+→ registrar vehículo
+→ recepción
+→ inspección
+→ diagnóstico
+→ cotización
+→ autorización
+→ OT
+→ asignar mecánico
+→ consumir piezas
+→ completar
+→ control calidad
+→ factura
+→ e-CF
+→ pago
+→ entrega
+
+FLUJO 2:
+
+Cliente existente
+→ cita
+→ llegada
+→ recepción
+→ OT
+
+FLUJO 3:
+
+POS
+→ agregar repuesto
+→ cobrar
+→ factura
+→ e-CF
+→ inventario disminuye
+→ cierre caja
+
+FLUJO 4:
+
+OT
+→ hallazgo adicional
+→ cotización adicional
+→ cliente rechaza
+→ no ejecutar
+→ no facturar
+
+FLUJO 5:
+
+OT
+→ hallazgo adicional
+→ cliente aprueba
+→ agregar trabajo
+→ consumir piezas
+→ facturar
+
+FLUJO 6:
+
+Compra proveedor
+→ recepción mercancía
+→ inventario aumenta
+→ cuenta por pagar
+
+FLUJO 7:
+
+Factura a crédito
+→ saldo pendiente
+→ abono
+→ segundo abono
+→ pago completo
+
+FLUJO 8:
+
+Factura fiscal emitida
+→ devolución/corrección
+→ nota de crédito
+→ referencia al documento original
+
+==================================================
+66. REGLAS IMPORTANTES
+==================================================
+
+NO:
+
+- mezclar C&R con RIVNU;
+- conectar DB RIVNU;
+- copiar datos de RIVNU;
+- reutilizar secuencias fiscales;
+- inventar e-NCF;
+- hardcodear stock;
+- hardcodear métricas;
+- considerar cotización como factura;
+- descontar stock por cotizar;
+- facturar trabajos rechazados;
+- permitir cambios arbitrarios a facturas fiscales;
+- fingir respuestas DGII;
+- guardar secretos en Git;
+- depender de permisos frontend;
+- crear botones sin lógica;
+- dejar pantallas puramente mock si forman parte del flujo principal.
+
+==================================================
+67. CRITERIO DE "FUNCIONAL"
+==================================================
+
+No considero terminada una pantalla porque visualmente se vea bonita.
+
+Cada botón importante debe hacer lo que dice.
+
+Ejemplos:
+
+"Nueva orden"
+debe crear una OT real.
+
+"Registrar vehículo"
+debe persistir el vehículo.
+
+"Iniciar diagnóstico"
+debe cambiar el workflow correctamente.
+
+"Crear estimación"
+debe crear cotización.
+
+"Aprobar"
+debe registrar aprobación.
+
+"Iniciar reparación"
+debe modificar estado y time tracking.
+
+"Agregar repuesto"
+debe relacionar/consumir correctamente.
+
+"Facturar"
+debe crear invoice real.
+
+"Cobrar"
+debe crear payments reales.
+
+"Cerrar caja"
+debe cuadrar la sesión.
+
+Los datos deben sobrevivir refresh.
+
+==================================================
+68. MIGRACIONES
+==================================================
+
+Toda modificación de DB debe realizarse mediante migraciones compatibles con la estrategia actual.
+
+No modificar producción manualmente.
+
+Crear constraints adecuados.
+
+Crear seeds separados.
+
+==================================================
+69. DOCUMENTACIÓN
+==================================================
+
+Actualiza README.
+
+Documenta:
+
+- arquitectura
+- setup
+- environment variables
+- migrations
+- seed
+- Supabase
+- storage
+- roles
+- fiscal configuration
+- DGII test/certification
+- running frontend/backend
+- testing
+- deployment
+
+Crear .env.example SIN secretos.
+
+==================================================
+70. VALIDACIÓN FINAL
+==================================================
+
+Cuando termines:
+
+1. ejecuta instalación si hace falta;
+2. ejecuta migraciones/test database según entorno;
+3. ejecuta lint;
+4. ejecuta typecheck;
+5. ejecuta tests;
+6. ejecuta build;
+7. corrige errores;
+8. revisa imports;
+9. revisa rutas rotas;
+10. revisa console errors;
+11. revisa endpoints;
+12. revisa permisos;
+13. revisa responsive;
+14. revisa estados vacíos;
+15. revisa workflow completo.
+
+No me entregues una implementación que no compile.
+
+==================================================
+71. PRIORIDADES
+==================================================
+
+Si el alcance es demasiado grande para realizar todo simultáneamente, NO hagas una colección de pantallas falsas.
+
+Prioriza vertical slices completamente funcionales.
+
+ORDEN DE PRIORIDAD:
+
+P0 - FOUNDATION
+- arquitectura
+- database
+- auth
+- RBAC
+- configuración
+- audit
+
+P1 - TALLER CORE
+- clientes
+- vehículos
+- recepción
+- diagnóstico
+- cotización
+- aprobación
+- OT
+- técnicos
+- inventario
+- servicios
+- control calidad
+- entrega
+
+P2 - ERP/POS
+- POS
+- caja
+- proveedores
+- compras
+- pagos
+- cuentas por cobrar
+- gastos
+
+P3 - FISCAL
+- invoice engine
+- DGII abstraction
+- e-CF
+- XML
+- signing
+- XSD
+- fiscal workflow
+- E31
+- E32/RFCE
+- E33
+- E34
+- RI/PDF/QR
+
+La arquitectura fiscal puede desarrollarse paralelamente al invoice engine, pero nunca sacrifiques integridad contable para acelerar UI.
+
+P4 - REPORTING / AUTOMATION
+- reportes
+- garantías
+- mantenimiento
+- notificaciones
+- WhatsApp/email
+
+==================================================
+72. PRINCIPIO DE IMPLEMENTACIÓN
+==================================================
+
+Quiero que actúes como senior full-stack engineer + software architect + product engineer.
+
+Toma decisiones razonables sin preguntarme cada pequeño detalle.
+
+Si una decisión puede inferirse claramente por:
+
+- este documento;
+- las capturas;
+- la estructura existente;
+- las convenciones del proyecto;
+
+tómala.
+
+Pregúntame solamente si necesitas:
+
+- una credencial externa;
+- certificado real;
+- RNC real;
+- secuencias autorizadas;
+- decisión fiscal que no pueda determinarse legalmente;
+- dato empresarial que sea imposible inferir.
+
+No uses la falta de esos datos como razón para detener el resto del desarrollo.
+
+Construye la arquitectura para configurarlos después.
+
+==================================================
+73. RESULTADO ESPERADO
+==================================================
+
+Al finalizar quiero tener un sistema que realmente pueda convertirse en el software operacional de:
+
+SOLUCIONES AUTOMOTRIZ C&R
+
+Debe poder manejar desde que un vehículo entra al taller hasta que sale, incluyendo:
+
+CLIENTE
++
+VEHÍCULO
++
+TALLER
++
+MECÁNICOS
++
+REPUESTOS
++
+INVENTARIO
++
+COTIZACIONES
++
+AUTORIZACIONES
++
+ÓRDENES DE TRABAJO
++
+POS
++
+CAJA
++
+COMPRAS
++
+FACTURACIÓN
++
+DGII / e-CF
++
+PAGOS
++
+HISTORIAL
++
+REPORTES
+
+El resultado debe sentirse como un producto comercial terminado y no como un demo, template o dashboard ficticio.
+
+Mantén como referencia visual permanente las capturas adjuntas.
+
+Analiza ahora el repositorio completo y comienza la implementación.

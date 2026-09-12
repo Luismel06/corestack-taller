@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@qorvex/database';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -13,6 +14,7 @@ import { InvoicesService } from './invoices.service';
 
 @Controller('invoices')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
+@RequirePermissions('invoices.view')
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
@@ -23,6 +25,7 @@ export class InvoicesController {
 
   @Post()
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions('invoices.manage')
   create(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -36,8 +39,15 @@ export class InvoicesController {
     return this.invoicesService.findOne(tenantId, id);
   }
 
+  @Get(':id/receipt')
+  @RequirePermissions('invoices.reprint')
+  receipt(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.invoicesService.findOne(tenantId, id);
+  }
+
   @Patch(':id')
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions('invoices.manage')
   update(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,

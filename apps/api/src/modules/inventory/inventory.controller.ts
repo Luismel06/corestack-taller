@@ -1,3 +1,4 @@
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@qorvex/database';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -12,6 +13,7 @@ import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
+@RequirePermissions('inventory.view')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
@@ -22,6 +24,7 @@ export class InventoryController {
 
   @Post('movements')
   @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions('inventory.adjust')
   createMovement(
     @TenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,

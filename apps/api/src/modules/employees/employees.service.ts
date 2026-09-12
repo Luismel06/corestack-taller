@@ -11,7 +11,15 @@ import {
   MembershipStatus,
   Role,
   UserStatus,
+  Prisma,
 } from '@qorvex/database';
+import {
+  effectivePermissions,
+  permissions,
+  legacyPermissions,
+  maxTenantUsers,
+} from '@qorvex/permissions';
+import { requirePermissions } from '../../common/authorization';
 import * as bcrypt from 'bcryptjs';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -33,12 +41,43 @@ const permissionKeys = [
   'canReprintReceipt',
   'canTakeOrders',
 ] as const;
-const maxTenantUsers = 5;
-const tenantAssignableRoles: Role[] = [Role.ADMIN, Role.ACCOUNTANT, Role.CASHIER, Role.ORDER_TAKER];
+const tenantAssignableRoles: Role[] = [Role.ADMIN, Role.CASHIER, Role.ORDER_TAKER, Role.MECHANIC];
+// Los roles anteriores permanecen contados mientras se migran, aunque ya no puedan asignarse.
+const tenantCountedRoles: Role[] = [
+  Role.ADMIN,
+  Role.CASHIER,
+  Role.ORDER_TAKER,
+  Role.MECHANIC,
+  Role.MANAGER,
+  Role.SERVICE_ADVISOR,
+  Role.RECEPTIONIST,
+  Role.SUPERVISOR,
+  Role.INVENTORY_MANAGER,
+  Role.ACCOUNTING,
+  Role.ACCOUNTANT,
+];
 
 @Injectable()
 export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async userLimit(tenantId: string) {
+    const used = await this.activeUserCount(this.prisma, tenantId);
+    return { limit: maxTenantUsers, used, available: Math.max(0, maxTenantUsers - used) };
+  }
+
+  private activeUserCount(client: Pick<Prisma.TransactionClient, 'membership'>, tenantId: string) {
+    return client.membership.count({
+      where: { tenantId, status: MembershipStatus.ACTIVE, role: { in: tenantCountedRoles } },
+    });
+  }
+
+  private async ensureUserSlot(tx: Prisma.TransactionClient, tenantId: string) {
+    if ((await this.activeUserCount(tx, tenantId)) >= maxTenantUsers)
+      throw new BadRequestException(
+        `Esta empresa admite un máximo de ${maxTenantUsers} usuarios activos. Desactiva uno antes de crear o reactivar otro.`,
+      );
+  }
 
   findAll(tenantId: string) {
     return this.prisma.employeeProfile.findMany({
@@ -65,7 +104,11 @@ export class EmployeesService {
   async create(tenantId: string, actor: AuthenticatedUser, dto: CreateEmployeeDto) {
     this.requireEmployeeManagement(tenantId, actor);
     this.ensureTenantRole(dto.role);
-    await this.ensureTenantUserLimit(tenantId);
+    this.validateOverrides(dto.permissionOverrides, dto.role);
+    if (!dto.password || dto.password.length < 8)
+      throw new BadRequestException(
+        'Define una contraseña de al menos ocho caracteres para el empleado.',
+      );
 
     const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({
@@ -76,11 +119,18 @@ export class EmployeesService {
     if (existing?.memberships.some((membership) => membership.tenantId === tenantId)) {
       throw new ConflictException('This user already belongs to this tenant.');
     }
+    if (existing)
+      throw new ConflictException(
+        'Ya existe una cuenta con ese correo. No se puede reutilizar ni modificar desde el alta de empleados.',
+      );
 
-    const passwordHash = await bcrypt.hash(dto.password ?? 'DemoPassword123!', 12);
+    const passwordHash = await bcrypt.hash(dto.password, 12);
 
     const employee = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Tenant" WHERE "id" = ${tenantId} FOR UPDATE`;
+      await this.requireFreshEmployeeManagement(tx, tenantId, actor.id);
       const profileStatus = dto.status ?? EmployeeStatus.ACTIVE;
+      if (profileStatus === EmployeeStatus.ACTIVE) await this.ensureUserSlot(tx, tenantId);
 
       const mapUserStatus = (status: EmployeeStatus | undefined) =>
         status === EmployeeStatus.BLOCKED
@@ -98,29 +148,15 @@ export class EmployeesService {
             ? MembershipStatus.INACTIVE
             : undefined;
 
-      const user =
-        existing ??
-        (await tx.user.create({
-          data: {
-            email,
-            name: dto.name,
-            phone: dto.phone,
-            passwordHash,
-            status: mapUserStatus(profileStatus) ?? UserStatus.ACTIVE,
-          },
-        }));
-
-      if (existing) {
-        await tx.user.update({
-          where: { id: existing.id },
-          data: {
-            name: dto.name,
-            phone: dto.phone,
-            ...(dto.password ? { passwordHash } : {}),
-            status: mapUserStatus(profileStatus) ?? UserStatus.ACTIVE,
-          },
-        });
-      }
+      const user = await tx.user.create({
+        data: {
+          email,
+          name: dto.name,
+          phone: dto.phone,
+          passwordHash,
+          status: mapUserStatus(profileStatus) ?? UserStatus.ACTIVE,
+        },
+      });
 
       const membership = await tx.membership.create({
         data: {
@@ -128,7 +164,8 @@ export class EmployeesService {
           userId: user.id,
           role: dto.role,
           status: mapMembershipStatus(profileStatus) ?? MembershipStatus.ACTIVE,
-          ...this.pickPermissions(dto, dto.role),
+          ...this.pickPermissions(dto, dto.role, true),
+          permissionOverrides: dto.permissionOverrides ?? {},
         },
       });
 
@@ -176,6 +213,7 @@ export class EmployeesService {
             employeeUserId: user.id,
             role: dto.role,
             permissions: this.permissionSnapshot(membership),
+            permissionOverrides: membership.permissionOverrides,
           },
         },
       });
@@ -219,37 +257,37 @@ export class EmployeesService {
       this.ensureTenantRole(dto.role);
     }
 
-    const employee = await this.findOne(tenantId, id);
-    const membership = employee.user.memberships[0];
-
-    if (!membership) {
-      throw new NotFoundException('Employee membership not found.');
-    }
-
-    if (dto.status && dto.status !== EmployeeStatus.ACTIVE) {
-      await this.ensureAnotherActiveAdmin(tenantId, employee.user.id);
-    }
-
-    const nextMembershipStatus =
-      dto.status === EmployeeStatus.ACTIVE
-        ? MembershipStatus.ACTIVE
-        : dto.status
-          ? MembershipStatus.INACTIVE
-          : membership.status;
-    const nextRole = dto.role ?? membership.role;
-    const currentlyCountsAsTenantUser =
-      membership.status === MembershipStatus.ACTIVE &&
-      tenantAssignableRoles.includes(membership.role);
-    const willCountAsTenantUser =
-      nextMembershipStatus === MembershipStatus.ACTIVE && tenantAssignableRoles.includes(nextRole);
-
-    if (willCountAsTenantUser && !currentlyCountsAsTenantUser) {
-      await this.ensureTenantUserLimit(tenantId, membership.id);
-    }
-
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 12) : undefined;
-
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Tenant" WHERE "id" = ${tenantId} FOR UPDATE`;
+      await this.requireFreshEmployeeManagement(tx, tenantId, actor.id);
+      const employee = await tx.employeeProfile.findFirst({
+        where: { id, tenantId },
+        include: { user: { include: { memberships: true } } },
+      });
+      if (!employee) throw new NotFoundException('Employee not found for tenant.');
+      if (employee.user.memberships.some((item) => item.tenantId !== tenantId))
+        throw new ForbiddenException(
+          'Esta cuenta pertenece a varias empresas y requiere administración de identidad independiente.',
+        );
+      const membership = employee.user.memberships[0];
+
+      if (!membership) {
+        throw new NotFoundException('Employee membership not found.');
+      }
+
+      const nextRole = dto.role ?? membership.role;
+      if (dto.status === EmployeeStatus.ACTIVE && membership.status !== MembershipStatus.ACTIVE)
+        await this.ensureUserSlot(tx, tenantId);
+      this.validateOverrides(dto.permissionOverrides, nextRole);
+      if (
+        membership.role === Role.ADMIN &&
+        ((dto.status && dto.status !== EmployeeStatus.ACTIVE) ||
+          nextRole !== Role.ADMIN ||
+          dto.permissionOverrides?.['employees.manage'] === false)
+      ) {
+        await this.ensureAnotherActiveAdmin(tx, tenantId, employee.user.id);
+      }
       await tx.user.update({
         where: { id: employee.userId },
         data: {
@@ -278,7 +316,13 @@ export class EmployeesService {
               : dto.status
                 ? MembershipStatus.INACTIVE
                 : undefined,
-          ...this.pickPermissions(dto, dto.role ?? membership.role),
+          ...this.pickPermissions(
+            dto,
+            dto.role ?? membership.role,
+            Boolean(dto.role && dto.role !== membership.role),
+          ),
+          permissionOverrides:
+            dto.permissionOverrides ?? (dto.role && dto.role !== membership.role ? {} : undefined),
         },
         select: this.membershipSelect(),
       });
@@ -329,6 +373,8 @@ export class EmployeesService {
             previousPermissions: this.permissionSnapshot(membership),
             newPermissions: this.permissionSnapshot(updatedMembership),
             changedPermissionKeys: this.changedPermissionKeys(membership, updatedMembership),
+            previousPermissionOverrides: membership.permissionOverrides,
+            newPermissionOverrides: updatedMembership.permissionOverrides,
           },
         },
       });
@@ -389,6 +435,7 @@ export class EmployeesService {
   }
 
   private requireEmployeeManagement(tenantId: string, actor: AuthenticatedUser) {
+    requirePermissions(actor, tenantId, 'employees.manage');
     const membership = actor.memberships.find((candidate) => candidate.tenantId === tenantId);
     const platformMembership = actor.memberships.find((candidate) =>
       ([Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN] as Role[]).includes(candidate.role),
@@ -425,37 +472,27 @@ export class EmployeesService {
     }
   }
 
-  private async ensureTenantUserLimit(tenantId: string, excludeMembershipId?: string) {
-    const activeTenantUsers = await this.prisma.membership.count({
-      where: {
-        tenantId,
-        ...(excludeMembershipId ? { id: { not: excludeMembershipId } } : {}),
-        status: MembershipStatus.ACTIVE,
-        role: { in: tenantAssignableRoles },
-      },
-    });
-
-    if (activeTenantUsers >= maxTenantUsers) {
-      throw new BadRequestException('Tenant user limit reached.');
-    }
-  }
-
-  private async ensureAnotherActiveAdmin(tenantId: string, userId: string) {
-    const adminCount = await this.prisma.membership.count({
+  private async ensureAnotherActiveAdmin(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    userId: string,
+  ) {
+    const admins = await tx.membership.findMany({
       where: {
         tenantId,
         role: Role.ADMIN,
         status: MembershipStatus.ACTIVE,
         userId: { not: userId },
+        user: { status: 'ACTIVE' },
       },
     });
 
-    if (adminCount < 1) {
+    if (!admins.some((admin) => effectivePermissions(admin)['employees.manage'])) {
       throw new BadRequestException('At least one active admin must remain for the tenant.');
     }
   }
 
-  private pickPermissions(dto: CreateEmployeeDto | UpdateEmployeeDto, role?: Role) {
+  private pickPermissions(dto: CreateEmployeeDto | UpdateEmployeeDto, role?: Role, reset = false) {
     const data = permissionKeys.reduce<Partial<Record<(typeof permissionKeys)[number], boolean>>>(
       (permissions, key) => {
         if (dto[key] !== undefined) {
@@ -464,14 +501,30 @@ export class EmployeesService {
 
         return permissions;
       },
-      {},
+      reset && role ? legacyPermissions(effectivePermissions({ role })) : {},
     );
 
+    if (
+      role &&
+      [
+        'MANAGER',
+        'SERVICE_ADVISOR',
+        'RECEPTIONIST',
+        'SUPERVISOR',
+        'INVENTORY_MANAGER',
+        'ACCOUNTING',
+      ].includes(role)
+    )
+      return data;
     if (role === Role.ORDER_TAKER) {
       return {
         ...this.blankPermissions(),
         canTakeOrders: true,
       };
+    }
+
+    if (role === Role.MECHANIC) {
+      return this.blankPermissions();
     }
 
     if (role === Role.ACCOUNTANT) {
@@ -534,6 +587,7 @@ export class EmployeesService {
       id: true,
       role: true,
       status: true,
+      permissionOverrides: true,
       canUsePos: true,
       canOpenCashSession: true,
       canCloseCashSession: true,
@@ -549,5 +603,38 @@ export class EmployeesService {
       canReprintReceipt: true,
       canTakeOrders: true,
     };
+  }
+
+  private validateOverrides(value: unknown, role: Role) {
+    if (value === undefined) return;
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      Object.entries(value).some(
+        ([key, enabled]) => !permissions.includes(key) || typeof enabled !== 'boolean',
+      )
+    )
+      throw new BadRequestException(
+        'Los permisos deben ser claves conocidas con valores verdadero/falso.',
+      );
+    const overrides = value as Record<string, boolean>;
+    if (overrides['employees.manage'] && role !== Role.ADMIN)
+      throw new BadRequestException('Solo un administrador puede administrar usuarios y accesos.');
+    if (role === Role.ADMIN && (overrides['pos.sell'] || overrides['cash.open']))
+      throw new BadRequestException('El administrador supervisa; asigna un cajero para cobrar.');
+  }
+
+  private async requireFreshEmployeeManagement(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    userId: string,
+  ) {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      include: { memberships: true },
+    });
+    if (!user) throw new ForbiddenException('Usuario no disponible.');
+    this.requireEmployeeManagement(tenantId, user);
   }
 }

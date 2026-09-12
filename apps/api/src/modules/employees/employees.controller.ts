@@ -9,16 +9,23 @@ import { TenantMembershipGuard } from '../../common/guards/tenant-membership.gua
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/employee.dto';
 import { EmployeesService } from './employees.service';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 
 @Controller('employees')
 @UseGuards(JwtAuthGuard, TenantMembershipGuard, RolesGuard)
 @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+@RequirePermissions('employees.manage')
 export class EmployeesController {
   constructor(private readonly employeesService: EmployeesService) {}
 
   @Get()
   findAll(@TenantId() tenantId: string) {
     return this.employeesService.findAll(tenantId);
+  }
+
+  @Get('limit')
+  userLimit(@TenantId() tenantId: string) {
+    return this.employeesService.userLimit(tenantId);
   }
 
   @Post()

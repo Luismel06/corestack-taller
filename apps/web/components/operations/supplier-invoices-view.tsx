@@ -46,7 +46,7 @@ import {
   type SupplierInvoiceStatus,
   type SupplierPayment,
 } from '@/lib/api';
-import { isAdminSession } from '@/lib/authorization';
+import { hasPermission } from '@/lib/authorization';
 import type { SupplierInvoiceOcrItem, SupplierInvoiceOcrResult } from '@/lib/supplier-invoice-ocr';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import { CancelReasonModal } from './cancel-reason-modal';
@@ -129,7 +129,13 @@ type OcrMappingLearningResult = {
 export function SupplierInvoicesView() {
   const session = useCurrentSession();
   const queryClient = useQueryClient();
-  const admin = isAdminSession(session);
+  const canManageSuppliers = hasPermission(session, 'suppliers.manage');
+  const canManageProducts = hasPermission(session, 'products.manage');
+  const canCapture = hasPermission(session, 'supplier_invoices.manage');
+  const canCancelInvoice = hasPermission(session, 'supplier_invoices.cancel');
+  const canCancelPayment = hasPermission(session, 'payables.cancel_payment');
+  const canPay = hasPermission(session, 'payables.pay');
+  const canReceive = canCapture && hasPermission(session, 'inventory.receive');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'ALL' | SupplierInvoiceStatus | 'OVERDUE'>('ALL');
   const [showForm, setShowForm] = useState(false);
@@ -968,7 +974,7 @@ export function SupplierInvoicesView() {
 
     updateItem(item.key, { productId: product.id });
 
-    if (!session || !supplierId) return;
+    if (!session || !supplierId || !canManageSuppliers) return;
     const alreadyLinked = selectedSupplierQuery.data?.products?.some(
       (supplierProduct) => supplierProduct.productId === product.id && supplierProduct.active,
     );
@@ -1005,7 +1011,7 @@ export function SupplierInvoicesView() {
    * la foto ni aprender sugerencias que todavía no fueron aceptadas.
    */
   async function learnConfirmedOcrMappings(): Promise<OcrMappingLearningResult> {
-    if (!session || !supplierId || !ocrResult) {
+    if (!session || !supplierId || !ocrResult || !canManageSuppliers) {
       return { learned: 0, skippedDuplicateCodes: [] };
     }
 
@@ -1089,13 +1095,13 @@ export function SupplierInvoicesView() {
           title="Facturas de suplidores"
           description="Registro manual, cuentas por pagar, abonos y trazabilidad de cada factura recibida."
         />
-        <Button onClick={startNewInvoice}>
+        <Button disabled={!canCapture} onClick={startNewInvoice}>
           <FilePlus2 className="h-4 w-4" />
           Registrar factura
         </Button>
       </div>
 
-      {showForm ? (
+      {showForm && canCapture ? (
         <SupplierInvoiceDialog
           open={showForm}
           title={editingId ? 'Completar factura de suplidor' : 'Introducir factura manualmente'}
@@ -1184,7 +1190,7 @@ export function SupplierInvoicesView() {
                         la cédula para no duplicarlo.
                       </p>
                     </div>
-                    {admin ? (
+                    {canManageSuppliers ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -1347,7 +1353,7 @@ export function SupplierInvoicesView() {
                           </option>
                         ))}
                       </select>
-                      {!purchaseOrderId && admin ? (
+                      {!purchaseOrderId && canManageSuppliers ? (
                         <Button
                           type="button"
                           variant="ghost"
@@ -1359,7 +1365,7 @@ export function SupplierInvoicesView() {
                           Registrar suplidor sin salir
                         </Button>
                       ) : null}
-                      {!purchaseOrderId && !admin ? (
+                      {!purchaseOrderId && !canManageSuppliers ? (
                         <p className="text-xs text-muted-foreground">
                           Un administrador puede registrar un suplidor nuevo desde esta misma
                           factura.
@@ -1505,7 +1511,7 @@ export function SupplierInvoicesView() {
                         />
                         {!purchaseOrderId && !item.productId ? (
                           <div className="space-y-1">
-                            {admin ? (
+                            {canManageProducts ? (
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -1523,7 +1529,7 @@ export function SupplierInvoicesView() {
                                 Selecciona o registra primero el suplidor para vincular el producto.
                               </p>
                             ) : null}
-                            {!admin ? (
+                            {!canManageProducts ? (
                               <p className="text-xs text-muted-foreground">
                                 Un administrador debe registrar los productos faltantes para
                                 proteger el catálogo.
@@ -1653,7 +1659,7 @@ export function SupplierInvoicesView() {
       ) : null}
 
       <SupplierInvoiceDialog
-        open={createChoiceOpen && !showForm}
+        open={canCapture && createChoiceOpen && !showForm}
         title="¿Cómo deseas registrar la factura?"
         description={
           purchaseOrderId
@@ -1806,14 +1812,14 @@ export function SupplierInvoicesView() {
             </CardHeader>
             <CardContent className="space-y-5">
               <QueryState loading={detailQuery.isLoading} error={detailQuery.error} />
-              {detailQuery.data?.status === 'DRAFT' && detailStage === 'capture' ? (
+              {canCapture && detailQuery.data?.status === 'DRAFT' && detailStage === 'capture' ? (
                 <CaptureMethodChoice
                   onManual={() => editInvoice(detailQuery.data!)}
                   onOcr={() => openOcrCamera(detailQuery.data!)}
                 />
               ) : null}
               {detailQuery.data &&
-              !(detailQuery.data.status === 'DRAFT' && detailStage === 'capture') ? (
+              !(canCapture && detailQuery.data.status === 'DRAFT' && detailStage === 'capture') ? (
                 <>
                   <div className="grid gap-3 rounded-md border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-4">
                     <Meta label="Factura" value={detailQuery.data.invoiceNumber} />
@@ -1857,7 +1863,7 @@ export function SupplierInvoicesView() {
                     </Table>
                   </div>
 
-                  {detailQuery.data.status === 'DRAFT' ? (
+                  {canCapture && detailQuery.data.status === 'DRAFT' ? (
                     <div className="flex flex-wrap justify-end gap-2">
                       <Button
                         type="button"
@@ -1870,17 +1876,23 @@ export function SupplierInvoicesView() {
                     </div>
                   ) : null}
 
-                  {detailQuery.data.status === 'DRAFT' || !hasConfirmedGoodsReceipt ? (
-                    <SupplierInvoiceEntryPanel invoice={detailQuery.data} session={session} />
+                  {canReceive ? (
+                    detailQuery.data.status === 'DRAFT' || !hasConfirmedGoodsReceipt ? (
+                      <SupplierInvoiceEntryPanel invoice={detailQuery.data} session={session} />
+                    ) : (
+                      <details className="rounded-lg border bg-muted/15">
+                        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold marker:content-none">
+                          Registrar una entrega adicional
+                        </summary>
+                        <div className="border-t p-4">
+                          <SupplierInvoiceEntryPanel invoice={detailQuery.data} session={session} />
+                        </div>
+                      </details>
+                    )
                   ) : (
-                    <details className="rounded-lg border bg-muted/15">
-                      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold marker:content-none">
-                        Registrar una entrega adicional
-                      </summary>
-                      <div className="border-t p-4">
-                        <SupplierInvoiceEntryPanel invoice={detailQuery.data} session={session} />
-                      </div>
-                    </details>
+                    <p className="text-sm text-muted-foreground">
+                      La entrada de mercancía la confirma un empleado autorizado.
+                    </p>
                   )}
 
                   {['PENDING', 'PARTIALLY_PAID'].includes(detailQuery.data.status) &&
@@ -1898,7 +1910,8 @@ export function SupplierInvoicesView() {
                   ) : null}
 
                   {['PENDING', 'PARTIALLY_PAID'].includes(detailQuery.data.status) &&
-                  hasConfirmedGoodsReceipt ? (
+                  hasConfirmedGoodsReceipt &&
+                  canPay ? (
                     <div className="rounded-md border p-4">
                       <div className="mb-4 flex items-center gap-2">
                         <Banknote className="h-5 w-5 text-accent" />
@@ -2048,7 +2061,7 @@ export function SupplierInvoicesView() {
                             </div>
                             <div className="flex items-center gap-2">
                               <ProcurementStatusBadge status={payment.status} />
-                              {admin && payment.status === 'COMPLETED' ? (
+                              {canCancelPayment && payment.status === 'COMPLETED' ? (
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -2073,7 +2086,7 @@ export function SupplierInvoicesView() {
                   </div>
 
                   <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-                    {admin && detailQuery.data.status !== 'CANCELLED' ? (
+                    {canCancelInvoice && detailQuery.data.status !== 'CANCELLED' ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -2216,10 +2229,10 @@ export function SupplierInvoicesView() {
         onRecognized={applyOcrResult}
       />
 
-      {admin ? (
+      {canManageSuppliers || canManageProducts ? (
         <>
           <SupplierQuickCreateDialog
-            open={quickSupplierOpen}
+            open={canManageSuppliers && quickSupplierOpen}
             onOpenChange={setQuickSupplierOpen}
             session={session}
             existingSuppliers={suppliersQuery.data ?? []}
@@ -2250,7 +2263,7 @@ export function SupplierInvoicesView() {
           />
 
           <QuickProductCreateDialog
-            open={Boolean(quickProductItem)}
+            open={canManageProducts && Boolean(quickProductItem)}
             onOpenChange={(open) => {
               if (!open) setQuickProductItemKey(null);
             }}

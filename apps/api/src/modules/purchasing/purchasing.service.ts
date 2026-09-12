@@ -1,3 +1,4 @@
+import { requirePermissions } from '../../common/authorization';
 import {
   BadRequestException,
   ConflictException,
@@ -7,11 +8,9 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
-  ProductInventoryDestination,
   ProductStatus,
   PurchaseOrderDestination,
   PurchaseOrderStatus,
-  Role,
   SupplierInvoiceStatus,
   SupplierStatus,
 } from '@qorvex/database';
@@ -24,9 +23,6 @@ import {
   PurchaseOrderItemDto,
   UpdatePurchaseOrderDto,
 } from './dto/purchase-order.dto';
-
-const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
-const purchasingRoles: Role[] = [...adminRoles, Role.ACCOUNTANT];
 
 const purchaseOrderInclude = {
   supplier: true,
@@ -108,7 +104,8 @@ export class PurchasingService {
   async create(tenantId: string, user: AuthenticatedUser, dto: CreatePurchaseOrderDto) {
     this.requirePurchasingWrite(tenantId, user);
     const supplier = await this.getActiveSupplier(tenantId, dto.supplierId);
-    const computed = await this.computeItems(tenantId, supplier.id, dto.items, dto.destination);
+    const destination = PurchaseOrderDestination.SALES_INVENTORY;
+    const computed = await this.computeItems(tenantId, supplier.id, dto.items);
     const orderNumber = this.generateOrderNumber();
 
     const order = await this.prisma.$transaction(async (tx) => {
@@ -117,7 +114,7 @@ export class PurchasingService {
           tenantId,
           supplierId: supplier.id,
           orderNumber,
-          destination: dto.destination,
+          destination,
           expectedDeliveryDate: dto.expectedDeliveryDate
             ? this.parseBusinessDate(dto.expectedDeliveryDate)
             : undefined,
@@ -181,9 +178,9 @@ export class PurchasingService {
     }
 
     const supplier = await this.getActiveSupplier(tenantId, dto.supplierId ?? current.supplierId);
-    const nextDestination = dto.destination ?? current.destination;
+    const nextDestination = PurchaseOrderDestination.SALES_INVENTORY;
     const computed = dto.items
-      ? await this.computeItems(tenantId, supplier.id, dto.items, nextDestination)
+      ? await this.computeItems(tenantId, supplier.id, dto.items)
       : undefined;
 
     const order = await this.prisma.$transaction(async (tx) => {
@@ -338,7 +335,7 @@ export class PurchasingService {
   }
 
   async cancel(tenantId: string, user: AuthenticatedUser, id: string, note?: string) {
-    this.requireAdmin(tenantId, user);
+    requirePermissions(user, tenantId, 'purchasing.view', 'purchasing.cancel');
     if (!note?.trim()) {
       throw new BadRequestException('A reason is required to cancel a purchase order.');
     }
@@ -455,7 +452,6 @@ export class PurchasingService {
     tenantId: string,
     supplierId: string,
     dtoItems: PurchaseOrderItemDto[],
-    destination: PurchaseOrderDestination,
   ) {
     const productIds = [...new Set(dtoItems.map((item) => item.productId))];
     if (productIds.length !== dtoItems.length) {
@@ -468,10 +464,7 @@ export class PurchasingService {
           tenantId,
           id: { in: productIds },
           status: ProductStatus.ACTIVE,
-          inventoryDestination:
-            destination === PurchaseOrderDestination.WAREHOUSE
-              ? ProductInventoryDestination.WAREHOUSE
-              : ProductInventoryDestination.SALES_INVENTORY,
+          inventoryDestination: 'SALES_INVENTORY',
         },
       }),
       this.prisma.supplierProduct.findMany({
@@ -570,29 +563,15 @@ export class PurchasingService {
   }
 
   private requirePurchasingAccess(tenantId: string, user: AuthenticatedUser) {
-    const role = this.getRole(tenantId, user);
-    if (!role || !purchasingRoles.includes(role)) {
-      throw new ForbiddenException('Purchase order access is required.');
-    }
+    requirePermissions(user, tenantId, 'purchasing.view');
   }
 
   private requirePurchasingWrite(tenantId: string, user: AuthenticatedUser) {
-    this.requirePurchasingAccess(tenantId, user);
+    requirePermissions(user, tenantId, 'purchasing.view', 'purchasing.create');
   }
 
   private requireAdmin(tenantId: string, user: AuthenticatedUser) {
-    const role = this.getRole(tenantId, user);
-    if (!role || !adminRoles.includes(role)) {
-      throw new ForbiddenException('Administrator approval is required.');
-    }
-  }
-
-  private getRole(tenantId: string, user: AuthenticatedUser) {
-    return (
-      user.memberships.find((membership) =>
-        ([Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN] as Role[]).includes(membership.role),
-      )?.role ?? user.memberships.find((membership) => membership.tenantId === tenantId)?.role
-    );
+    requirePermissions(user, tenantId, 'purchasing.view', 'purchasing.approve');
   }
 
   private parseStatus(value?: string) {

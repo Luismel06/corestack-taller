@@ -21,15 +21,15 @@ import { Label } from '@/components/ui/label';
 import {
   cancelReceivablePayment,
   createReceivablePayment,
-  getCashSessions,
+  getPaymentCashSessions,
   getReceivableCustomerSummary,
   getReceivables,
-  type CashSession,
+  type PaymentCashSession,
   type ReceivableDueBucket,
   type ReceivableInvoice,
   type ReceivablePayment,
 } from '@/lib/api';
-import { isAdminSession } from '@/lib/authorization';
+import { hasPermission } from '@/lib/authorization';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import { ModuleHeader } from './module-header';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -83,9 +83,11 @@ export function ReceivablesView() {
     enabled: Boolean(session),
   });
   const cashSessionsQuery = useQuery({
-    queryKey: ['cash-sessions', session?.tenantId, 'receivables'],
-    queryFn: () => getCashSessions(session?.tenantId ?? '', session?.accessToken ?? ''),
-    enabled: Boolean(session),
+    queryKey: ['payment-cash-sessions', session?.tenantId, 'receivables'],
+    queryFn: () => getPaymentCashSessions(session?.tenantId ?? '', session?.accessToken ?? ''),
+    enabled:
+      hasPermission(session, 'receivables.collect') ||
+      hasPermission(session, 'receivables.cancel_payment'),
   });
 
   const openCashSessions = (cashSessionsQuery.data ?? []).filter(
@@ -179,7 +181,8 @@ export function ReceivablesView() {
     return <SessionRequired session={session} />;
   }
 
-  const canCancel = isAdminSession(session);
+  const canCancel = hasPermission(session, 'receivables.cancel_payment');
+  const canCollect = hasPermission(session, 'receivables.collect');
 
   async function invalidateReceivableQueries() {
     await queryClient.invalidateQueries({ queryKey: ['receivables'] });
@@ -254,7 +257,7 @@ export function ReceivablesView() {
         </Button>
       </div>
 
-      {paymentTarget ? (
+      {paymentTarget && canCollect ? (
         <PaymentForm
           target={paymentTarget}
           sessions={openCashSessions}
@@ -265,7 +268,7 @@ export function ReceivablesView() {
         />
       ) : null}
 
-      {cancellationTarget ? (
+      {cancellationTarget && canCancel ? (
         <CancellationForm
           target={cancellationTarget}
           sessions={openCashSessions}
@@ -315,6 +318,7 @@ export function ReceivablesView() {
                   key={invoice.id}
                   invoice={invoice}
                   canCancel={canCancel}
+                  canCollect={canCollect}
                   onPayment={() =>
                     setPaymentTarget({
                       invoice,
@@ -384,11 +388,13 @@ export function ReceivablesView() {
 function ReceivableCard({
   invoice,
   canCancel,
+  canCollect,
   onPayment,
   onCancelPayment,
 }: {
   invoice: ReceivableInvoice;
   canCancel: boolean;
+  canCollect: boolean;
   onPayment: () => void;
   onCancelPayment: (payment: NonNullable<ReceivableInvoice['payments']>[number]) => void;
 }) {
@@ -468,7 +474,7 @@ function ReceivableCard({
           </div>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          {Number(invoice.balance) > 0 ? (
+          {canCollect && Number(invoice.balance) > 0 ? (
             <Button type="button" onClick={onPayment}>
               <Banknote className="h-4 w-4" />
               Registrar abono
@@ -497,7 +503,7 @@ function PaymentForm({
   onClose,
 }: {
   target: PaymentTarget;
-  sessions: CashSession[];
+  sessions: PaymentCashSession[];
   pending: boolean;
   onChange: (target: PaymentTarget) => void;
   onSubmit: () => void;
@@ -568,7 +574,7 @@ function CancellationForm({
   onClose,
 }: {
   target: CancellationTarget;
-  sessions: CashSession[];
+  sessions: PaymentCashSession[];
   pending: boolean;
   onChange: (target: CancellationTarget) => void;
   onSubmit: () => void;

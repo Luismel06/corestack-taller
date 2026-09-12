@@ -32,11 +32,18 @@ enum MembershipStatus {
 }
 
 enum Role {
+  MANAGER
+  SERVICE_ADVISOR
+  RECEPTIONIST
+  SUPERVISOR
+  INVENTORY_MANAGER
+  ACCOUNTING
   SUPER_ADMIN
   ADMIN
   ACCOUNTANT
   CASHIER
   ORDER_TAKER
+  MECHANIC
   QORVEX_SUPER_ADMIN
 }
 
@@ -69,6 +76,10 @@ enum InventoryMovementType {
   DAMAGE
   TRANSFER_IN
   TRANSFER_OUT
+  WORK_ORDER_RESERVATION
+  WORK_ORDER_CONSUMPTION
+  WORK_ORDER_RETURN
+  WORK_ORDER_RELEASE
 }
 
 enum InvoiceStatus {
@@ -120,6 +131,101 @@ enum SalesOrderPriceLevel {
   REGULAR
   DISCOUNT_10
   PREFERRED_18
+}
+
+enum WorkshopTicketStatus {
+  RECEIVED
+  DIAGNOSIS
+  AWAITING_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  READY_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum WorkshopTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum WorkshopVehicleType {
+  CAR
+  SUV
+}
+
+enum WorkshopAppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  ARRIVED
+  NO_SHOW
+  CANCELLED
+  CONVERTED_TO_RECEPTION
+}
+
+enum WorkshopQualityStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WorkshopInspectionResult {
+  GOOD
+  ATTENTION
+  REQUIRES_REPAIR
+  NOT_INSPECTED
+}
+
+enum WorkshopTicketLineType {
+  LABOR
+  PART
+  OTHER
+}
+
+enum WorkshopApprovalStatus {
+  NOT_REQUESTED
+  PENDING
+  APPROVED
+  PARTIALLY_APPROVED
+  REJECTED
+}
+
+enum WorkshopChangeOrderStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum WorkshopTaskKind {
+  LEGACY
+  DIAGNOSIS
+  REPAIR
+}
+
+enum WorkshopTaskStatus {
+  PENDING
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkshopTaskTimeEvent {
+  START
+  PAUSE
+  RESUME
+  COMPLETE
+  CANCEL
+}
+
+enum WorkshopBayStatus {
+  AVAILABLE
+  OCCUPIED
+  BLOCKED
+  MAINTENANCE
 }
 
 enum ReturnRequestStatus {
@@ -456,6 +562,20 @@ model Tenant {
   goodsReceiptItems          GoodsReceiptItem[]
   creditSaleApprovals        CreditSaleApproval[]
   mobileOcrCaptureSessions   MobileOcrCaptureSession[]
+  vehicles                   WorkshopVehicle[]
+  workshopTickets            WorkshopTicket[]
+  workshopServices           WorkshopService[]
+  workshopAppointments       WorkshopAppointment[]
+  workshopReceptions         WorkshopReception[]
+  workshopQualityChecks      WorkshopQualityCheck[]
+  workshopDeliveries         WorkshopDelivery[]
+  workshopInspections        WorkshopInspection[]
+  workshopInspectionItems    WorkshopInspectionItem[]
+  workshopTaskTimeEntries    WorkshopTaskTimeEntry[]
+  workshopQuoteVersions      WorkshopQuoteVersion[]
+  workshopBays               WorkshopBay[]
+  workshopChangeOrders       WorkshopChangeOrder[]
+  workshopTicketStatusEvents WorkshopTicketStatusEvent[]
 
   @@index([status])
   @@index([createdAt])
@@ -532,6 +652,17 @@ model User {
   creditSaleApprovalsCancelled        CreditSaleApproval[]        @relation("CreditSaleApprovalCancelledBy")
   paymentsCancelled                   Payment[]                   @relation("PaymentCancelledBy")
   mobileOcrCaptureSessionsCreated     MobileOcrCaptureSession[]   @relation("MobileOcrCaptureCreatedBy")
+  workshopTicketsCreated              WorkshopTicket[]            @relation("WorkshopTicketCreatedBy")
+  workshopAppointmentsCreated         WorkshopAppointment[]       @relation("WorkshopAppointmentCreatedBy")
+  workshopReceptionsCreated           WorkshopReception[]         @relation("WorkshopReceptionCreatedBy")
+  workshopQualityChecksCreated        WorkshopQualityCheck[]      @relation("WorkshopQualityCheckCreatedBy")
+  workshopDeliveriesCreated           WorkshopDelivery[]          @relation("WorkshopDeliveryCreatedBy")
+  workshopInspectionsCreated          WorkshopInspection[]        @relation("WorkshopInspectionCreatedBy")
+  workshopTaskTimeEntriesCreated      WorkshopTaskTimeEntry[]     @relation("WorkshopTaskTimeEntryCreatedBy")
+  workshopQuoteVersionsCreated        WorkshopQuoteVersion[]      @relation("WorkshopQuoteVersionCreatedBy")
+  workshopChangeOrdersCreated         WorkshopChangeOrder[]       @relation("WorkshopChangeOrderCreatedBy")
+  workshopChangeOrdersResponded       WorkshopChangeOrder[]       @relation("WorkshopChangeOrderRespondedBy")
+  workshopTicketStatusEventsCreated   WorkshopTicketStatusEvent[] @relation("WorkshopTicketStatusEventCreatedBy")
 
   @@index([status])
   @@index([createdAt])
@@ -551,6 +682,7 @@ model Membership {
   canVoidInvoice           Boolean          @default(false)
   canAdjustInventory       Boolean          @default(false)
   canManageProducts        Boolean          @default(false)
+  permissionOverrides      Json?
   canManageEmployees       Boolean          @default(false)
   canViewReports           Boolean          @default(false)
   canManageFiscalSequences Boolean          @default(false)
@@ -568,34 +700,37 @@ model Membership {
 }
 
 model Customer {
-  id                  String               @id @default(cuid())
-  tenantId            String
-  name                String
-  documentType        DocumentType
-  documentNumber      String?
-  email               String?
-  phone               String?
-  address             String?
-  status              CustomerStatus       @default(ACTIVE)
-  creditEnabled       Boolean              @default(false)
-  creditLimit         Decimal              @default(0) @db.Decimal(14, 2)
-  creditBalance       Decimal              @default(0) @db.Decimal(14, 2)
-  creditTermDays      Int                  @default(30)
-  creditStatus        CustomerCreditStatus @default(BLOCKED)
-  creditEnabledAt     DateTime?
-  creditEnabledById   String?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  creditEnabledBy     User?                @relation("CustomerCreditEnabledBy", fields: [creditEnabledById], references: [id], onDelete: SetNull)
-  invoices            Invoice[]
-  salesOrders         SalesOrder[]
-  creditSaleApprovals CreditSaleApproval[]
+  id                   String                @id @default(cuid())
+  tenantId             String
+  name                 String
+  documentType         DocumentType
+  documentNumber       String?
+  email                String?
+  phone                String?
+  address              String?
+  status               CustomerStatus        @default(ACTIVE)
+  creditEnabled        Boolean               @default(false)
+  creditLimit          Decimal               @default(0) @db.Decimal(14, 2)
+  creditBalance        Decimal               @default(0) @db.Decimal(14, 2)
+  creditTermDays       Int                   @default(30)
+  creditStatus         CustomerCreditStatus  @default(BLOCKED)
+  creditEnabledAt      DateTime?
+  creditEnabledById    String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creditEnabledBy      User?                 @relation("CustomerCreditEnabledBy", fields: [creditEnabledById], references: [id], onDelete: SetNull)
+  invoices             Invoice[]
+  salesOrders          SalesOrder[]
+  creditSaleApprovals  CreditSaleApproval[]
+  vehicles             WorkshopVehicle[]
+  workshopTickets      WorkshopTicket[]
+  workshopAppointments WorkshopAppointment[]
 
+  @@unique([tenantId, documentType, documentNumber])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, creditEnabled, creditStatus])
-  @@unique([tenantId, documentType, documentNumber])
   @@index([creditEnabledById])
   @@index([createdAt])
 }
@@ -617,50 +752,53 @@ model ProductCategory {
 }
 
 model Product {
-  id                     String                @id @default(cuid())
-  tenantId               String
-  categoryId             String?
-  name                   String
-  sku                    String?
-  barcode                String?
-  barcodeType            BarcodeType?
-  generatedBarcode       Boolean               @default(false)
-  barcodeLabelPrintedAt  DateTime?
-  barcodeLabelPrintCount Int                   @default(0)
-  barcodeLastScannedAt   DateTime?
-  barcodeCreatedById     String?
-  description            String?
-  imageUrl               String?
-  brand                  String?
-  unit                   ProductUnit           @default(UNIT)
-  price                  Decimal               @db.Decimal(12, 2)
-  salePrice              Decimal               @default(0) @db.Decimal(12, 2)
-  cost                   Decimal?              @db.Decimal(12, 2)
-  costWithTax            Decimal?              @db.Decimal(14, 2)
-  margin                 Decimal?              @db.Decimal(8, 4)
-  taxCategory            TaxCategory           @default(ITBIS_18)
-  taxRate                Decimal               @default(0.18) @db.Decimal(5, 4)
-  trackInventory         Boolean               @default(true)
-  inventoryDestination   ProductInventoryDestination @default(SALES_INVENTORY)
-  stock                  Float                 @default(0)
-  reservedStock          Float                 @default(0)
-  minStock               Float                 @default(0)
-  status                 ProductStatus         @default(ACTIVE)
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  tenant                 Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category               ProductCategory?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  inventoryMovements     InventoryMovement[]
-  warehouseStocks        WarehouseStock[]
-  warehouseMovements     WarehouseMovement[]
-  invoiceItems           InvoiceItem[]
-  salesOrderItems        SalesOrderItem[]
-  returnRequestItems     ReturnRequestItem[]
-  supplierProducts       SupplierProduct[]
-  purchaseOrderItems     PurchaseOrderItem[]
-  supplierInvoiceItems   SupplierInvoiceItem[]
-  goodsReceiptItems      GoodsReceiptItem[]
-  importRows             ImportBatchRow[]
+  id                       String                      @id @default(cuid())
+  tenantId                 String
+  categoryId               String?
+  name                     String
+  sku                      String?
+  barcode                  String?
+  barcodeType              BarcodeType?
+  generatedBarcode         Boolean                     @default(false)
+  barcodeLabelPrintedAt    DateTime?
+  barcodeLabelPrintCount   Int                         @default(0)
+  barcodeLastScannedAt     DateTime?
+  barcodeCreatedById       String?
+  description              String?
+  imageUrl                 String?
+  brand                    String?
+  unit                     ProductUnit                 @default(UNIT)
+  price                    Decimal                     @db.Decimal(12, 2)
+  salePrice                Decimal                     @default(0) @db.Decimal(12, 2)
+  cost                     Decimal?                    @db.Decimal(12, 2)
+  costWithTax              Decimal?                    @db.Decimal(14, 2)
+  margin                   Decimal?                    @db.Decimal(8, 4)
+  taxCategory              TaxCategory                 @default(ITBIS_18)
+  taxRate                  Decimal                     @default(0.18) @db.Decimal(5, 4)
+  trackInventory           Boolean                     @default(true)
+  inventoryDestination     ProductInventoryDestination @default(SALES_INVENTORY)
+  stock                    Float                       @default(0)
+  reservedStock            Float                       @default(0)
+  minStock                 Float                       @default(0)
+  status                   ProductStatus               @default(ACTIVE)
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+  tenant                   Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category                 ProductCategory?            @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  inventoryMovements       InventoryMovement[]
+  warehouseStocks          WarehouseStock[]
+  warehouseMovements       WarehouseMovement[]
+  invoiceItems             InvoiceItem[]
+  salesOrderItems          SalesOrderItem[]
+  returnRequestItems       ReturnRequestItem[]
+  supplierProducts         SupplierProduct[]
+  purchaseOrderItems       PurchaseOrderItem[]
+  supplierInvoiceItems     SupplierInvoiceItem[]
+  goodsReceiptItems        GoodsReceiptItem[]
+  importRows               ImportBatchRow[]
+  workshopTicketLines      WorkshopTicketLine[]
+  workshopChangeOrderLines WorkshopChangeOrderLine[]
+  workshopServiceProfile   WorkshopService?
 
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
@@ -673,28 +811,32 @@ model Product {
 }
 
 model InventoryMovement {
-  id                String                @id @default(cuid())
-  tenantId          String
-  productId         String
-  type              InventoryMovementType
-  quantity          Float
-  previousStock     Float?
-  newStock          Float?
-  unitCost          Decimal?              @db.Decimal(12, 2)
-  reason            String?
-  reference         String?
-  invoiceId         String?
-  supplierInvoiceId String?
-  goodsReceiptId    String?
-  createdById       String?
-  createdAt         DateTime              @default(now())
-  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  product           Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
-  invoice           Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  supplierInvoice   SupplierInvoice?      @relation(fields: [supplierInvoiceId], references: [id], onDelete: SetNull)
-  goodsReceipt      GoodsReceipt?         @relation(fields: [goodsReceiptId], references: [id], onDelete: SetNull)
-  createdBy         User?                 @relation("InventoryMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  id                   String                @id @default(cuid())
+  tenantId             String
+  productId            String
+  type                 InventoryMovementType
+  quantity             Float
+  previousStock        Float?
+  newStock             Float?
+  unitCost             Decimal?              @db.Decimal(12, 2)
+  reason               String?
+  reference            String?
+  invoiceId            String?
+  supplierInvoiceId    String?
+  goodsReceiptId       String?
+  workshopTicketLineId String?
+  operationKey         String?
+  createdById          String?
+  createdAt            DateTime              @default(now())
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product              Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  invoice              Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  supplierInvoice      SupplierInvoice?      @relation(fields: [supplierInvoiceId], references: [id], onDelete: SetNull)
+  goodsReceipt         GoodsReceipt?         @relation(fields: [goodsReceiptId], references: [id], onDelete: SetNull)
+  workshopTicketLine   WorkshopTicketLine?   @relation(fields: [workshopTicketLineId], references: [id], onDelete: Restrict)
+  createdBy            User?                 @relation("InventoryMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
+  @@unique([tenantId, operationKey])
   @@index([tenantId])
   @@index([tenantId, type])
   @@index([tenantId, createdAt])
@@ -702,6 +844,7 @@ model InventoryMovement {
   @@index([invoiceId])
   @@index([supplierInvoiceId])
   @@index([goodsReceiptId])
+  @@index([workshopTicketLineId])
   @@index([createdById])
 }
 
@@ -751,6 +894,8 @@ model WarehouseMovement {
 
 model Invoice {
   id                   String                @id @default(cuid())
+  checkoutKey          String?
+  checkoutRequestHash  String?
   tenantId             String
   customerId           String?
   documentType         InvoiceDocumentType   @default(CONSUMER_02)
@@ -789,6 +934,7 @@ model Invoice {
   returnRequests       ReturnRequest[]
 
   @@unique([tenantId, invoiceNumber])
+  @@unique([tenantId, checkoutKey])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, paymentMode, dueDate])
@@ -820,56 +966,57 @@ model InvoiceItem {
 }
 
 model SalesOrder {
-  id                      String                @id @default(cuid())
-  tenantId                String
-  customerId              String?
-  destination             SalesOrderDestination @default(CASH_SALE)
-  inventorySource         ProductInventoryDestination @default(SALES_INVENTORY)
-  clientName              String?
-    quotationDocumentType   DocumentType?
-    quotationDocumentNumber String?
-    electronicInvoiceRequested Boolean             @default(false)
-    ecfRecipientEmail        String?
-    orderNumber             String
-  status                  SalesOrderStatus      @default(SENT_TO_CASHIER)
-  priceLevel              SalesOrderPriceLevel  @default(REGULAR)
-  discountRate            Decimal               @default(0) @db.Decimal(5, 4)
-  subtotal                Decimal               @default(0) @db.Decimal(12, 2)
-  taxTotal                Decimal               @default(0) @db.Decimal(12, 2)
-  discountTotal           Decimal               @default(0) @db.Decimal(12, 2)
-  total                   Decimal               @default(0) @db.Decimal(12, 2)
-  paymentMode             SalePaymentMode       @default(CASH)
-  initialPaymentOption    InitialPaymentOption?
-  initialPaymentRate      Decimal               @default(0) @db.Decimal(5, 4)
-  initialPaymentAmount    Decimal               @default(0) @db.Decimal(14, 2)
-  creditTermOption        CreditTermOption?
-  creditTermDays          Int?
-  dueDate                 DateTime?
-  creditRequestNote       String?
-  notes                   String?
-  createdById             String
-  completedById           String?
-  claimedById             String?
-  claimedCashSessionId    String?
-  invoiceId               String?               @unique
-  sentToCashierAt         DateTime?
-  claimedAt               DateTime?
-  claimExpiresAt          DateTime?
-  releasedAt              DateTime?
-  completedAt             DateTime?
-  cancelledAt             DateTime?
-  cancelReason            String?
-  createdAt               DateTime              @default(now())
-  updatedAt               DateTime              @updatedAt
-  tenant                  Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer                Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  createdBy               User                  @relation("SalesOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  completedBy             User?                 @relation("SalesOrderCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
-  claimedBy               User?                 @relation("SalesOrderClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
-  claimedCashSession      CashSession?          @relation("SalesOrderClaimedCashSession", fields: [claimedCashSessionId], references: [id], onDelete: SetNull)
-  invoice                 Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  items                   SalesOrderItem[]
-  creditApproval          CreditSaleApproval?
+  id                         String                      @id @default(cuid())
+  tenantId                   String
+  customerId                 String?
+  destination                SalesOrderDestination       @default(CASH_SALE)
+  inventorySource            ProductInventoryDestination @default(SALES_INVENTORY)
+  clientName                 String?
+  quotationDocumentType      DocumentType?
+  quotationDocumentNumber    String?
+  electronicInvoiceRequested Boolean                     @default(false)
+  ecfRecipientEmail          String?
+  orderNumber                String
+  status                     SalesOrderStatus            @default(SENT_TO_CASHIER)
+  priceLevel                 SalesOrderPriceLevel        @default(REGULAR)
+  discountRate               Decimal                     @default(0) @db.Decimal(5, 4)
+  subtotal                   Decimal                     @default(0) @db.Decimal(12, 2)
+  taxTotal                   Decimal                     @default(0) @db.Decimal(12, 2)
+  discountTotal              Decimal                     @default(0) @db.Decimal(12, 2)
+  total                      Decimal                     @default(0) @db.Decimal(12, 2)
+  paymentMode                SalePaymentMode             @default(CASH)
+  initialPaymentOption       InitialPaymentOption?
+  initialPaymentRate         Decimal                     @default(0) @db.Decimal(5, 4)
+  initialPaymentAmount       Decimal                     @default(0) @db.Decimal(14, 2)
+  creditTermOption           CreditTermOption?
+  creditTermDays             Int?
+  dueDate                    DateTime?
+  creditRequestNote          String?
+  notes                      String?
+  createdById                String
+  completedById              String?
+  claimedById                String?
+  claimedCashSessionId       String?
+  invoiceId                  String?                     @unique
+  sentToCashierAt            DateTime?
+  claimedAt                  DateTime?
+  claimExpiresAt             DateTime?
+  releasedAt                 DateTime?
+  completedAt                DateTime?
+  cancelledAt                DateTime?
+  cancelReason               String?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  tenant                     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer                   Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdBy                  User                        @relation("SalesOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy                User?                       @relation("SalesOrderCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  claimedBy                  User?                       @relation("SalesOrderClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  claimedCashSession         CashSession?                @relation("SalesOrderClaimedCashSession", fields: [claimedCashSessionId], references: [id], onDelete: SetNull)
+  invoice                    Invoice?                    @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  workshopTicket             WorkshopTicket?
+  items                      SalesOrderItem[]
+  creditApproval             CreditSaleApproval?
 
   @@unique([tenantId, orderNumber])
   @@index([tenantId])
@@ -885,25 +1032,609 @@ model SalesOrder {
 }
 
 model SalesOrderItem {
-  id               String     @id @default(cuid())
-  salesOrderId     String
-  productId        String?
-  sku              String?
-  barcode          String?
-  description      String
-  quantity         Decimal    @db.Decimal(12, 2)
-  reservedQuantity Float      @default(0)
-  unitPrice        Decimal    @db.Decimal(12, 2)
-  discountTotal    Decimal    @default(0) @db.Decimal(12, 2)
-  taxRate          Decimal    @db.Decimal(5, 4)
-  taxTotal         Decimal    @default(0) @db.Decimal(12, 2)
-  subtotal         Decimal    @db.Decimal(12, 2)
-  total            Decimal    @db.Decimal(12, 2)
-  salesOrder       SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
-  product          Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  id                        String              @id @default(cuid())
+  salesOrderId              String
+  productId                 String?
+  workshopTicketLineId      String?
+  sku                       String?
+  barcode                   String?
+  description               String
+  quantity                  Decimal             @db.Decimal(12, 2)
+  reservedQuantity          Float               @default(0)
+  inventoryConsumedQuantity Decimal             @default(0) @db.Decimal(12, 2)
+  unitPrice                 Decimal             @db.Decimal(12, 2)
+  discountTotal             Decimal             @default(0) @db.Decimal(12, 2)
+  taxRate                   Decimal             @db.Decimal(5, 4)
+  taxTotal                  Decimal             @default(0) @db.Decimal(12, 2)
+  subtotal                  Decimal             @db.Decimal(12, 2)
+  total                     Decimal             @db.Decimal(12, 2)
+  salesOrder                SalesOrder          @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product                   Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  workshopTicketLine        WorkshopTicketLine? @relation(fields: [workshopTicketLineId], references: [id], onDelete: SetNull)
 
   @@index([salesOrderId])
   @@index([productId])
+  @@index([workshopTicketLineId])
+}
+
+model WorkshopVehicle {
+  id           String                @id @default(cuid())
+  tenantId     String
+  customerId   String
+  vehicleType  WorkshopVehicleType?
+  licensePlate String?
+  make         String
+  model        String
+  year         Int?
+  color        String?
+  vin          String?
+  mileage      Int?
+  notes        String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer     Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tickets      WorkshopTicket[]
+  appointments WorkshopAppointment[]
+  maintenance  WorkshopMaintenance[]
+
+  @@unique([tenantId, licensePlate])
+  @@index([tenantId, customerId])
+  @@index([tenantId, make, model])
+}
+
+model WorkshopTicket {
+  id                  String                      @id @default(cuid())
+  tenantId            String
+  customerId          String
+  vehicleId           String
+  ticketNumber        String
+  status              WorkshopTicketStatus        @default(RECEIVED)
+  priority            WorkshopTicketPriority      @default(NORMAL)
+  approvalStatus      WorkshopApprovalStatus      @default(NOT_REQUESTED)
+  complaint           String
+  diagnosis           String?
+  internalNotes       String?
+  customerNotes       String?
+  approvalNote        String?
+  estimatedTotal      Decimal                     @default(0) @db.Decimal(12, 2)
+  laborTotal          Decimal                     @default(0) @db.Decimal(12, 2)
+  partsTotal          Decimal                     @default(0) @db.Decimal(12, 2)
+  total               Decimal                     @default(0) @db.Decimal(12, 2)
+  openedAt            DateTime                    @default(now())
+  promisedAt          DateTime?
+  completedAt         DateTime?
+  deliveredAt         DateTime?
+  cancelledAt         DateTime?
+  approvalRequestedAt DateTime?
+  approvedAt          DateTime?
+  salesOrderId        String?                     @unique
+  createdById         String
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  tenant              Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer                    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle             WorkshopVehicle             @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  createdBy           User                        @relation("WorkshopTicketCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  salesOrder          SalesOrder?                 @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  assignments         WorkshopTicketAssignment[]
+  lines               WorkshopTicketLine[]
+  tasks               WorkshopTask[]
+  appointment         WorkshopAppointment?        @relation("WorkshopAppointmentTicket")
+  reception           WorkshopReception?
+  qualityCheck        WorkshopQualityCheck?
+  delivery            WorkshopDelivery?
+  inspection          WorkshopInspection?
+  quoteVersions       WorkshopQuoteVersion[]
+  changeOrders        WorkshopChangeOrder[]
+  statusEvents        WorkshopTicketStatusEvent[]
+  advances            WorkshopAdvance[]
+  expenses            WorkshopExpense[]
+  externalJobs        WorkshopExternalJob[]
+  warranties          WorkshopWarranty[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, ticketNumber])
+  @@index([tenantId, status, priority])
+  @@index([tenantId, customerId])
+  @@index([tenantId, vehicleId])
+  @@index([tenantId, approvalStatus])
+  @@index([createdById])
+}
+
+model WorkshopAppointment {
+  id                String                    @id @default(cuid())
+  tenantId          String
+  customerId        String
+  vehicleId         String
+  mechanicId        String?
+  createdById       String
+  convertedTicketId String?                   @unique
+  startsAt          DateTime
+  estimatedMinutes  Int                       @default(60)
+  reason            String
+  notes             String?
+  status            WorkshopAppointmentStatus @default(SCHEDULED)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer          Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle           WorkshopVehicle           @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  mechanic          EmployeeProfile?          @relation(fields: [mechanicId], references: [id], onDelete: SetNull)
+  createdBy         User                      @relation("WorkshopAppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  convertedTicket   WorkshopTicket?           @relation("WorkshopAppointmentTicket", fields: [convertedTicketId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, startsAt])
+  @@index([tenantId, status, startsAt])
+  @@index([customerId])
+  @@index([vehicleId])
+  @@index([mechanicId, startsAt])
+  @@index([createdById])
+}
+
+// Non-fiscal receipts: an advance is money held for one OT, not a second sale.
+model WorkshopAdvance {
+  id            String         @id @default(cuid())
+  tenantId      String
+  ticketId      String
+  requestKey    String
+  amount        Decimal        @db.Decimal(12, 2)
+  method        PaymentMethod
+  reference     String?
+  cashSessionId String
+  receivedById  String
+  status        String         @default("AVAILABLE")
+  paymentId     String?        @unique
+  invoiceId     String?
+  refundedAt    DateTime?
+  refundReason  String?
+  createdAt     DateTime       @default(now())
+  ticket        WorkshopTicket @relation(fields: [tenantId, ticketId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, requestKey])
+  @@index([tenantId, ticketId, status])
+}
+
+model WorkshopExpense {
+  id            String               @id @default(cuid())
+  tenantId      String
+  ticketId      String?
+  supplierId    String?
+  requestKey    String
+  category      String
+  description   String
+  amount        Decimal              @db.Decimal(12, 2)
+  incurredAt    DateTime
+  dueAt         DateTime?
+  status        String               @default("PENDING")
+  method        PaymentMethod?
+  reference     String?
+  cashSessionId String?
+  paidAt        DateTime?
+  voidReason    String?
+  createdById   String
+  createdAt     DateTime             @default(now())
+  ticket        WorkshopTicket?      @relation(fields: [tenantId, ticketId], references: [tenantId, id], onDelete: Restrict)
+  externalJob   WorkshopExternalJob?
+
+  @@unique([tenantId, requestKey])
+  @@index([tenantId, incurredAt, status])
+}
+
+model WorkshopExternalJob {
+  id           String             @id @default(cuid())
+  tenantId     String
+  ticketId     String
+  ticketLineId String
+  supplierId   String
+  supplierName String
+  description  String
+  cost         Decimal            @db.Decimal(12, 2)
+  billedPrice  Decimal            @db.Decimal(12, 2)
+  status       String             @default("SENT")
+  sentAt       DateTime           @default(now())
+  returnedAt   DateTime?
+  notes        String?
+  expenseId    String             @unique
+  createdById  String
+  ticket       WorkshopTicket     @relation(fields: [tenantId, ticketId], references: [tenantId, id], onDelete: Restrict)
+  line         WorkshopTicketLine @relation(fields: [ticketLineId, ticketId], references: [id, ticketId], onDelete: Restrict)
+  expense      WorkshopExpense    @relation(fields: [expenseId], references: [id], onDelete: Restrict)
+
+  @@unique([ticketLineId])
+  @@index([tenantId, status])
+}
+
+model WorkshopWarranty {
+  id           String                  @id @default(cuid())
+  tenantId     String
+  ticketId     String
+  ticketLineId String
+  invoiceId    String
+  type         String
+  description  String
+  startsAt     DateTime
+  expiresAt    DateTime?
+  mileageLimit Int?
+  conditions   String
+  createdById  String
+  createdAt    DateTime                @default(now())
+  ticket       WorkshopTicket          @relation(fields: [tenantId, ticketId], references: [tenantId, id], onDelete: Restrict)
+  line         WorkshopTicketLine      @relation(fields: [ticketLineId, ticketId], references: [id, ticketId], onDelete: Restrict)
+  claims       WorkshopWarrantyClaim[]
+
+  @@unique([tenantId, ticketLineId])
+  @@index([tenantId, expiresAt])
+}
+
+model WorkshopWarrantyClaim {
+  id             String           @id @default(cuid())
+  warrantyId     String
+  complaint      String
+  mileage        Int
+  status         String           @default("OPEN")
+  resolution     String?
+  repairTicketId String?
+  createdById    String
+  createdAt      DateTime         @default(now())
+  resolvedAt     DateTime?
+  warranty       WorkshopWarranty @relation(fields: [warrantyId], references: [id], onDelete: Restrict)
+
+  @@index([warrantyId, status])
+}
+
+model WorkshopMaintenance {
+  id                String          @id @default(cuid())
+  tenantId          String
+  vehicleId         String
+  originTicketId    String?
+  title             String
+  dueAt             DateTime?
+  dueMileage        Int?
+  notes             String?
+  status            String          @default("SCHEDULED")
+  completedTicketId String?
+  completedAt       DateTime?
+  createdById       String
+  createdAt         DateTime        @default(now())
+  vehicle           WorkshopVehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, vehicleId, status])
+  @@index([tenantId, dueAt])
+}
+
+model WorkshopReception {
+  id                String           @id @default(cuid())
+  tenantId          String
+  ticketId          String           @unique
+  mileage           Int
+  fuelLevel         String?
+  accessories       String?
+  belongings        String?
+  exteriorCondition String?
+  interiorCondition String?
+  warningLights     String?
+  observations      String?
+  bay               String?
+  bayId             String?
+  initialMechanicId String?
+  createdById       String
+  receivedAt        DateTime         @default(now())
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket            WorkshopTicket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  bayRef            WorkshopBay?     @relation(fields: [bayId], references: [id], onDelete: SetNull)
+  initialMechanic   EmployeeProfile? @relation("WorkshopReceptionInitialMechanic", fields: [initialMechanicId], references: [id], onDelete: SetNull)
+  createdBy         User             @relation("WorkshopReceptionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, receivedAt])
+  @@index([bayId])
+  @@index([initialMechanicId])
+  @@index([createdById])
+}
+
+model WorkshopBay {
+  id         String              @id @default(cuid())
+  tenantId   String
+  code       String
+  name       String
+  status     WorkshopBayStatus   @default(AVAILABLE)
+  notes      String?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receptions WorkshopReception[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+}
+
+model WorkshopQualityCheck {
+  id                   String                @id @default(cuid())
+  tenantId             String
+  ticketId             String                @unique
+  status               WorkshopQualityStatus @default(PENDING)
+  workCompleted        Boolean               @default(false)
+  partsVerified        Boolean               @default(false)
+  leaksChecked         Boolean               @default(false)
+  fluidsChecked        Boolean               @default(false)
+  warningLightsChecked Boolean               @default(false)
+  roadTested           Boolean               @default(false)
+  toolsRemoved         Boolean               @default(false)
+  vehicleCleaned       Boolean               @default(false)
+  observations         String?
+  checkedById          String
+  checkedAt            DateTime              @default(now())
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket               WorkshopTicket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  checkedBy            User                  @relation("WorkshopQualityCheckCreatedBy", fields: [checkedById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status])
+  @@index([checkedById])
+}
+
+model WorkshopDelivery {
+  id              String         @id @default(cuid())
+  tenantId        String
+  ticketId        String         @unique
+  recipientName   String
+  mileageOut      Int
+  recommendations String?
+  notes           String?
+  deliveredById   String
+  deliveredAt     DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket          WorkshopTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  deliveredBy     User           @relation("WorkshopDeliveryCreatedBy", fields: [deliveredById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, deliveredAt])
+  @@index([deliveredById])
+}
+
+model WorkshopInspection {
+  id          String                   @id @default(cuid())
+  tenantId    String
+  ticketId    String                   @unique
+  createdById String
+  inspectedAt DateTime                 @default(now())
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  tenant      Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket      WorkshopTicket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdBy   User                     @relation("WorkshopInspectionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  items       WorkshopInspectionItem[]
+
+  @@index([tenantId, inspectedAt])
+  @@index([createdById])
+}
+
+model WorkshopInspectionItem {
+  id             String                   @id @default(cuid())
+  tenantId       String
+  inspectionId   String
+  code           String
+  label          String
+  result         WorkshopInspectionResult @default(NOT_INSPECTED)
+  comment        String?
+  recommendation String?
+  sortOrder      Int                      @default(0)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  tenant         Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inspection     WorkshopInspection       @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@unique([inspectionId, code])
+  @@index([tenantId, result])
+  @@index([inspectionId, sortOrder])
+}
+
+model WorkshopService {
+  id               String                    @id @default(cuid())
+  tenantId         String
+  productId        String                    @unique
+  code             String
+  name             String
+  category         String?
+  description      String?
+  defaultPrice     Decimal                   @db.Decimal(12, 2)
+  estimatedMinutes Int?
+  taxRate          Decimal                   @default(0.18) @db.Decimal(5, 4)
+  active           Boolean                   @default(true)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product          Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  lines            WorkshopTicketLine[]
+  changeOrderLines WorkshopChangeOrderLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, active])
+  @@index([tenantId, name])
+}
+
+model WorkshopTicketAssignment {
+  id          String          @id @default(cuid())
+  ticketId    String
+  employeeId  String
+  assignedAt  DateTime        @default(now())
+  completedAt DateTime?
+  ticket      WorkshopTicket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  employee    EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, employeeId])
+  @@index([employeeId, assignedAt])
+}
+
+model WorkshopTicketLine {
+  id                 String                 @id @default(cuid())
+  ticketId           String
+  productId          String?
+  serviceId          String?
+  type               WorkshopTicketLineType
+  description        String
+  quantity           Decimal                @default(1) @db.Decimal(12, 2)
+  unitPrice          Decimal                @default(0) @db.Decimal(12, 2)
+  total              Decimal                @default(0) @db.Decimal(12, 2)
+  reservedQuantity   Float                  @default(0)
+  consumedQuantity   Decimal                @default(0) @db.Decimal(12, 2)
+  releasedQuantity   Decimal                @default(0) @db.Decimal(12, 2)
+  approvalStatus     WorkshopApprovalStatus @default(NOT_REQUESTED)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  ticket             WorkshopTicket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  product            Product?               @relation(fields: [productId], references: [id], onDelete: SetNull)
+  service            WorkshopService?       @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  inventoryMovements InventoryMovement[]
+  salesOrderItems    SalesOrderItem[]
+
+  tasks        WorkshopTask[]
+  externalJobs WorkshopExternalJob[]
+  warranties   WorkshopWarranty[]
+
+  @@unique([id, ticketId])
+  @@index([ticketId])
+  @@index([productId])
+  @@index([serviceId])
+}
+
+model WorkshopTask {
+  id               String                  @id @default(cuid())
+  ticketId         String
+  employeeId       String?
+  kind             WorkshopTaskKind        @default(LEGACY)
+  ticketLineId     String?
+  title            String
+  description      String?
+  status           WorkshopTaskStatus      @default(PENDING)
+  estimatedMinutes Int?
+  actualMinutes    Int                     @default(0)
+  pausedMinutes    Int                     @default(0)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  ticket           WorkshopTicket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketLine       WorkshopTicketLine?     @relation(fields: [ticketLineId, ticketId], references: [id, ticketId], onDelete: Restrict)
+  employee         EmployeeProfile?        @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  timeEntries      WorkshopTaskTimeEntry[]
+
+  @@index([ticketId, status])
+  @@index([employeeId, status])
+  @@index([ticketLineId, ticketId])
+}
+
+model WorkshopTaskTimeEntry {
+  id         String                @id @default(cuid())
+  tenantId   String
+  taskId     String
+  userId     String
+  event      WorkshopTaskTimeEvent
+  occurredAt DateTime              @default(now())
+  note       String?
+  createdAt  DateTime              @default(now())
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  task       WorkshopTask          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User                  @relation("WorkshopTaskTimeEntryCreatedBy", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, occurredAt])
+  @@index([taskId, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+model WorkshopQuoteVersion {
+  id          String                 @id @default(cuid())
+  tenantId    String
+  ticketId    String
+  version     Int
+  status      WorkshopApprovalStatus @default(PENDING)
+  laborTotal  Decimal                @db.Decimal(12, 2)
+  partsTotal  Decimal                @db.Decimal(12, 2)
+  total       Decimal                @db.Decimal(12, 2)
+  snapshot    Json
+  decision    Json?
+  note        String?
+  createdById String
+  createdAt   DateTime               @default(now())
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket      WorkshopTicket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdBy   User                   @relation("WorkshopQuoteVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([ticketId, version])
+  @@index([tenantId, status, createdAt])
+  @@index([createdById])
+}
+
+model WorkshopChangeOrder {
+  id            String                    @id @default(cuid())
+  tenantId      String
+  ticketId      String
+  number        Int
+  status        WorkshopChangeOrderStatus @default(PENDING)
+  title         String
+  description   String?
+  laborTotal    Decimal                   @default(0) @db.Decimal(12, 2)
+  partsTotal    Decimal                   @default(0) @db.Decimal(12, 2)
+  total         Decimal                   @default(0) @db.Decimal(12, 2)
+  responseNote  String?
+  decision      Json?
+  respondedAt   DateTime?
+  respondedById String?
+  createdById   String
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  tenant        Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket        WorkshopTicket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdBy     User                      @relation("WorkshopChangeOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  respondedBy   User?                     @relation("WorkshopChangeOrderRespondedBy", fields: [respondedById], references: [id], onDelete: SetNull)
+  lines         WorkshopChangeOrderLine[]
+
+  @@unique([ticketId, number])
+  @@index([tenantId, status, createdAt])
+  @@index([createdById])
+  @@index([respondedById])
+}
+
+model WorkshopChangeOrderLine {
+  id            String                 @id @default(cuid())
+  changeOrderId String
+  productId     String?
+  serviceId     String?
+  type          WorkshopTicketLineType
+  description   String
+  quantity      Decimal                @default(1) @db.Decimal(12, 2)
+  unitPrice     Decimal                @default(0) @db.Decimal(12, 2)
+  total         Decimal                @default(0) @db.Decimal(12, 2)
+  createdAt     DateTime               @default(now())
+  changeOrder   WorkshopChangeOrder    @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  product       Product?               @relation(fields: [productId], references: [id], onDelete: SetNull)
+  service       WorkshopService?       @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([changeOrderId])
+  @@index([productId])
+  @@index([serviceId])
+}
+
+model WorkshopTicketStatusEvent {
+  id          String                @id @default(cuid())
+  tenantId    String
+  ticketId    String
+  fromStatus  WorkshopTicketStatus?
+  toStatus    WorkshopTicketStatus
+  note        String?
+  createdById String
+  createdAt   DateTime              @default(now())
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket      WorkshopTicket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdBy   User                  @relation("WorkshopTicketStatusEventCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@index([ticketId, createdAt])
+  @@index([createdById])
 }
 
 model Supplier {
@@ -979,19 +1710,19 @@ model SupplierProduct {
 }
 
 model PurchaseOrder {
-  id                             String               @id @default(cuid())
+  id                             String                   @id @default(cuid())
   tenantId                       String
   supplierId                     String
   orderNumber                    String
-  status                         PurchaseOrderStatus  @default(DRAFT)
+  status                         PurchaseOrderStatus      @default(DRAFT)
   destination                    PurchaseOrderDestination @default(SALES_INVENTORY)
-  currency                       Currency             @default(DOP)
+  currency                       Currency                 @default(DOP)
   requestDate                    DateTime?
   expectedDeliveryDate           DateTime?
-  subtotal                       Decimal              @default(0) @db.Decimal(14, 2)
-  taxTotal                       Decimal              @default(0) @db.Decimal(14, 2)
-  discountTotal                  Decimal              @default(0) @db.Decimal(14, 2)
-  total                          Decimal              @default(0) @db.Decimal(14, 2)
+  subtotal                       Decimal                  @default(0) @db.Decimal(14, 2)
+  taxTotal                       Decimal                  @default(0) @db.Decimal(14, 2)
+  discountTotal                  Decimal                  @default(0) @db.Decimal(14, 2)
+  total                          Decimal                  @default(0) @db.Decimal(14, 2)
   notes                          String?
   supplierNameSnapshot           String
   supplierDocumentTypeSnapshot   DocumentType
@@ -1013,17 +1744,17 @@ model PurchaseOrder {
   cancelledAt                    DateTime?
   pauseReason                    String?
   cancelReason                   String?
-  createdAt                      DateTime             @default(now())
-  updatedAt                      DateTime             @updatedAt
-  tenant                         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  supplier                       Supplier             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  createdBy                      User                 @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  requestedBy                    User?                @relation("PurchaseOrderRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
-  reviewedBy                     User?                @relation("PurchaseOrderReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
-  approvedBy                     User?                @relation("PurchaseOrderApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  issuedBy                       User?                @relation("PurchaseOrderIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
-  pausedBy                       User?                @relation("PurchaseOrderPausedBy", fields: [pausedById], references: [id], onDelete: SetNull)
-  cancelledBy                    User?                @relation("PurchaseOrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  createdAt                      DateTime                 @default(now())
+  updatedAt                      DateTime                 @updatedAt
+  tenant                         Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier                       Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy                      User                     @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  requestedBy                    User?                    @relation("PurchaseOrderRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy                     User?                    @relation("PurchaseOrderReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  approvedBy                     User?                    @relation("PurchaseOrderApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  issuedBy                       User?                    @relation("PurchaseOrderIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+  pausedBy                       User?                    @relation("PurchaseOrderPausedBy", fields: [pausedById], references: [id], onDelete: SetNull)
+  cancelledBy                    User?                    @relation("PurchaseOrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
   items                          PurchaseOrderItem[]
   events                         PurchaseOrderEvent[]
   supplierInvoice                SupplierInvoice?
@@ -1484,6 +2215,7 @@ model Payment {
   amount        Decimal       @db.Decimal(12, 2)
   status        PaymentStatus @default(PENDING)
   receiptNumber String?
+  reference     String?
   userId        String?
   cashSessionId String?
   cancelledById String?
@@ -1531,23 +2263,27 @@ model ElectronicDocument {
 }
 
 model EmployeeProfile {
-  id                    String         @id @default(cuid())
-  tenantId              String
-  userId                String
-  employeeCode          String?
-  jobTitle              String?
-  hireDate              DateTime?
-  documentType          DocumentType?
-  documentNumber        String?
-  address               String?
-  emergencyContactName  String?
-  emergencyContactPhone String?
-  notes                 String?
-  status                EmployeeStatus @default(ACTIVE)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  tenant                Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user                  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                        String                     @id @default(cuid())
+  tenantId                  String
+  userId                    String
+  employeeCode              String?
+  jobTitle                  String?
+  hireDate                  DateTime?
+  documentType              DocumentType?
+  documentNumber            String?
+  address                   String?
+  emergencyContactName      String?
+  emergencyContactPhone     String?
+  notes                     String?
+  status                    EmployeeStatus             @default(ACTIVE)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workshopAssignments       WorkshopTicketAssignment[]
+  workshopTasks             WorkshopTask[]
+  workshopAppointments      WorkshopAppointment[]
+  workshopReceptionsInitial WorkshopReception[]        @relation("WorkshopReceptionInitialMechanic")
 
   @@unique([tenantId, userId])
   @@unique([tenantId, employeeCode])
@@ -1655,21 +2391,21 @@ model EmployeeActivityLog {
 }
 
 model FiscalSequence {
-  id           String               @id @default(cuid())
-  tenantId     String
-  documentType InvoiceDocumentType
-  prefix       String
-  startNumber  Int
-  endNumber    Int
-  nextNumber   Int
-  authorizationNumber String?
-  issuerDocumentType DocumentType?
+  id                   String               @id @default(cuid())
+  tenantId             String
+  documentType         InvoiceDocumentType
+  prefix               String
+  startNumber          Int
+  endNumber            Int
+  nextNumber           Int
+  authorizationNumber  String?
+  issuerDocumentType   DocumentType?
   issuerDocumentNumber String?
-  validUntil   DateTime?
-  status       FiscalSequenceStatus @default(ACTIVE)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  validUntil           DateTime?
+  status               FiscalSequenceStatus @default(ACTIVE)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  tenant               Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([tenantId, documentType, status])

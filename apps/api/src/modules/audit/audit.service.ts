@@ -6,15 +6,18 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  log(data: {
-    tenantId?: string;
-    userId?: string;
-    action: string;
-    entity: string;
-    entityId?: string;
-    metadata?: Prisma.InputJsonValue;
-  }) {
-    return this.prisma.auditLog.create({
+  log(
+    data: {
+      tenantId?: string;
+      userId?: string;
+      action: string;
+      entity: string;
+      entityId?: string;
+      metadata?: Prisma.InputJsonValue;
+    },
+    client: Pick<Prisma.TransactionClient, 'auditLog'> = this.prisma,
+  ) {
+    return client.auditLog.create({
       data: {
         tenantId: data.tenantId,
         userId: data.userId,

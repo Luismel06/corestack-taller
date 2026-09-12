@@ -15,15 +15,16 @@ export class TenantMembershipGuard implements CanActivate {
 
     const user = request.user;
 
-    if (!user) {
+    if (!user || user.status !== 'ACTIVE') {
       throw new ForbiddenException('Authenticated user is required.');
     }
 
     const hasTenantAccess = user.memberships.some(
       (membership) =>
-        membership.tenantId === tenantId ||
-        membership.role === Role.SUPER_ADMIN ||
-        membership.role === Role.QORVEX_SUPER_ADMIN,
+        membership.status === 'ACTIVE' &&
+        (membership.tenantId === tenantId ||
+          membership.role === Role.SUPER_ADMIN ||
+          membership.role === Role.QORVEX_SUPER_ADMIN),
     );
 
     if (!hasTenantAccess) {

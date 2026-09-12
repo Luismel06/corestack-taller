@@ -144,6 +144,11 @@ export type DashboardSummary = {
     month: string;
     total: number;
   }>;
+  salesLast7Days?: Array<{
+    date: string;
+    label: string;
+    total: number;
+  }>;
 };
 
 export type ProductSalesMetric = {
@@ -205,6 +210,391 @@ export type Customer = {
   creditEnabledAt: string | null;
   creditEnabledById: string | null;
   createdAt: string;
+};
+
+export type WorkshopVehicleType = 'CAR' | 'SUV';
+
+export type WorkshopVehicle = {
+  id: string;
+  customerId: string;
+  vehicleType: WorkshopVehicleType | null;
+  licensePlate: string | null;
+  make: string;
+  model: string;
+  year: number | null;
+  color: string | null;
+  vin: string | null;
+  mileage: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: Pick<Customer, 'id' | 'name' | 'phone'>;
+};
+
+export type WorkshopVehicleHistory = Omit<WorkshopVehicle, 'customer'> & {
+  customer: Pick<Customer, 'id' | 'name' | 'phone' | 'email'>;
+  tickets: WorkshopTicket[];
+  appointments: Array<{
+    id: string;
+    startsAt: string;
+    estimatedMinutes: number;
+    reason: string;
+    status: WorkshopAppointmentStatus;
+    convertedTicketId: string | null;
+  }>;
+};
+
+export type WorkshopMechanic = {
+  id: string;
+  employeeCode: string | null;
+  jobTitle: string | null;
+  user: { id: string; name: string; email: string; phone: string | null };
+};
+
+export type WorkshopBayStatus = 'AVAILABLE' | 'OCCUPIED' | 'BLOCKED' | 'MAINTENANCE';
+
+export type WorkshopBay = {
+  id: string;
+  code: string;
+  name: string;
+  status: WorkshopBayStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkshopService = {
+  id: string;
+  tenantId: string;
+  productId: string;
+  code: string;
+  name: string;
+  category: string | null;
+  description: string | null;
+  defaultPrice: string;
+  estimatedMinutes: number | null;
+  taxRate: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  product: { id: string; sku: string | null; taxRate: string; status: string };
+};
+
+export type WorkshopTicketLine = {
+  id: string;
+  productId: string | null;
+  serviceId: string | null;
+  type: 'LABOR' | 'PART' | 'OTHER';
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  total: string;
+  reservedQuantity: number;
+  consumedQuantity: string;
+  releasedQuantity: string;
+  inventoryMovements: Array<{
+    id: string;
+    type: string;
+    quantity: number;
+    previousStock: number | null;
+    newStock: number | null;
+    reason: string | null;
+    createdAt: string;
+    createdBy: { id: string; name: string } | null;
+  }>;
+  approvalStatus: WorkshopApprovalStatus;
+  product: {
+    id: string;
+    name: string;
+    sku: string | null;
+    trackInventory: boolean;
+    unit: string;
+  } | null;
+  service: { id: string; code: string; name: string; estimatedMinutes: number | null } | null;
+};
+
+export type WorkshopTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+
+export type WorkshopTaskTimeEntry = {
+  id: string;
+  event: 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE' | 'CANCEL';
+  note?: string | null;
+  occurredAt: string;
+  createdAt: string;
+};
+
+export type WorkshopTask = {
+  id: string;
+  ticketId: string;
+  employeeId: string | null;
+  kind: 'LEGACY' | 'DIAGNOSIS' | 'REPAIR';
+  ticketLineId: string | null;
+  title: string;
+  description: string | null;
+  status: WorkshopTaskStatus;
+  estimatedMinutes: number | null;
+  actualMinutes: number;
+  pausedMinutes: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  employee: WorkshopMechanic | null;
+  timeEntries: WorkshopTaskTimeEntry[];
+};
+
+export type WorkshopApprovalStatus =
+  | 'NOT_REQUESTED'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'PARTIALLY_APPROVED'
+  | 'REJECTED';
+
+export type WorkshopQuoteVersion = {
+  id: string;
+  version: number;
+  status: WorkshopApprovalStatus;
+  laborTotal: string;
+  partsTotal: string;
+  total: string;
+  snapshot?: {
+    lines?: Array<{
+      id?: string | null;
+      productId?: string | null;
+      serviceId?: string | null;
+      type: 'LABOR' | 'PART' | 'OTHER';
+      description: string;
+      quantity: string;
+      releasedQuantity?: string;
+      billableQuantity?: string;
+      unitPrice: string;
+      total: string;
+    }>;
+  } | null;
+  note: string | null;
+  decision: WorkshopAuthorizationEvidence | null;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+};
+
+export type WorkshopChangeOrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export type WorkshopAuthorizationEvidence = {
+  authorizedByName: string;
+  method: 'IN_PERSON' | 'PHONE' | 'WHATSAPP' | 'EMAIL' | 'DIGITAL';
+  recordedAt?: string;
+  recordedById?: string;
+};
+
+export type WorkshopApprovalResponse = WorkshopAuthorizationEvidence & {
+  quoteVersionId: string;
+  approvedLineIds?: string[];
+  status: Extract<WorkshopApprovalStatus, 'APPROVED' | 'PARTIALLY_APPROVED' | 'REJECTED'>;
+  note?: string;
+};
+
+export type WorkshopChangeOrderLine = {
+  id: string;
+  productId: string | null;
+  serviceId: string | null;
+  type: 'LABOR' | 'PART' | 'OTHER';
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  total: string;
+  product: { id: string; name: string; sku: string | null } | null;
+  service: { id: string; code: string; name: string; estimatedMinutes: number | null } | null;
+};
+
+export type WorkshopChangeOrder = {
+  id: string;
+  ticketId: string;
+  number: number;
+  status: WorkshopChangeOrderStatus;
+  title: string;
+  description: string | null;
+  laborTotal: string;
+  partsTotal: string;
+  total: string;
+  responseNote: string | null;
+  decision: WorkshopAuthorizationEvidence | null;
+  respondedAt: string | null;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+  respondedBy: { id: string; name: string } | null;
+  lines: WorkshopChangeOrderLine[];
+};
+
+export type WorkshopTicketStatusEvent = {
+  id: string;
+  fromStatus: WorkshopTicketStatus | null;
+  toStatus: WorkshopTicketStatus;
+  note: string | null;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+};
+
+export type WorkshopTicket = {
+  id: string;
+  ticketNumber: string;
+  status: WorkshopTicketStatus;
+  priority: WorkshopTicketPriority;
+  approvalStatus: WorkshopApprovalStatus;
+  approvalNote: string | null;
+  complaint: string;
+  diagnosis: string | null;
+  internalNotes: string | null;
+  customerNotes: string | null;
+  estimatedTotal: string;
+  laborTotal: string;
+  partsTotal: string;
+  total: string;
+  openedAt: string;
+  promisedAt: string | null;
+  completedAt: string | null;
+  deliveredAt: string | null;
+  approvalRequestedAt: string | null;
+  approvedAt: string | null;
+  customer: Pick<Customer, 'id' | 'name' | 'phone' | 'email'>;
+  vehicle: WorkshopVehicle;
+  assignments: Array<{ id: string; employee: WorkshopMechanic }>;
+  lines: WorkshopTicketLine[];
+  tasks: WorkshopTask[];
+  reception: WorkshopReception | null;
+  qualityCheck: WorkshopQualityCheck | null;
+  delivery: WorkshopDelivery | null;
+  inspection: WorkshopInspection | null;
+  quoteVersions: WorkshopQuoteVersion[];
+  statusEvents: WorkshopTicketStatusEvent[];
+  salesOrder: {
+    id: string;
+    orderNumber: string;
+    status: string;
+    total: string;
+    invoice: {
+      id: string;
+      invoiceNumber: string;
+      status: string;
+      balance: string;
+      total: string;
+      paidAmount: string;
+    } | null;
+  } | null;
+};
+
+export type WorkshopReception = {
+  id: string;
+  ticketId: string;
+  mileage: number;
+  fuelLevel: string | null;
+  accessories: string | null;
+  belongings: string | null;
+  exteriorCondition: string | null;
+  interiorCondition: string | null;
+  warningLights: string | null;
+  observations: string | null;
+  bay: string | null;
+  bayId: string | null;
+  initialMechanicId: string | null;
+  receivedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  initialMechanic: WorkshopMechanic | null;
+  bayRef: WorkshopBay | null;
+  createdBy: { id: string; name: string };
+};
+
+export type WorkshopQualityStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export type WorkshopQualityCheck = {
+  id: string;
+  ticketId: string;
+  status: WorkshopQualityStatus;
+  workCompleted: boolean;
+  partsVerified: boolean;
+  leaksChecked: boolean;
+  fluidsChecked: boolean;
+  warningLightsChecked: boolean;
+  roadTested: boolean;
+  toolsRemoved: boolean;
+  vehicleCleaned: boolean;
+  observations: string | null;
+  checkedAt: string;
+  checkedBy: { id: string; name: string };
+};
+
+export type WorkshopDelivery = {
+  id: string;
+  ticketId: string;
+  recipientName: string;
+  mileageOut: number;
+  recommendations: string | null;
+  notes: string | null;
+  deliveredAt: string;
+  deliveredBy: { id: string; name: string };
+};
+
+export type WorkshopInspectionResult = 'GOOD' | 'ATTENTION' | 'REQUIRES_REPAIR' | 'NOT_INSPECTED';
+
+export type WorkshopInspection = {
+  id: string;
+  ticketId: string;
+  inspectedAt: string;
+  createdBy: { id: string; name: string };
+  items: Array<{
+    id: string;
+    code: string;
+    label: string;
+    result: WorkshopInspectionResult;
+    comment: string | null;
+    recommendation: string | null;
+    sortOrder: number;
+  }>;
+};
+
+export type WorkshopTicketStatus =
+  | 'RECEIVED'
+  | 'DIAGNOSIS'
+  | 'AWAITING_APPROVAL'
+  | 'APPROVED'
+  | 'IN_PROGRESS'
+  | 'READY_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'CANCELLED';
+
+export type WorkshopTicketPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+
+export type WorkshopAppointmentStatus =
+  | 'SCHEDULED'
+  | 'CONFIRMED'
+  | 'ARRIVED'
+  | 'NO_SHOW'
+  | 'CANCELLED'
+  | 'CONVERTED_TO_RECEPTION';
+
+export type WorkshopAppointment = {
+  id: string;
+  customerId: string;
+  vehicleId: string;
+  mechanicId: string | null;
+  startsAt: string;
+  estimatedMinutes: number;
+  reason: string;
+  notes: string | null;
+  status: WorkshopAppointmentStatus;
+  createdAt: string;
+  updatedAt: string;
+  customer: Pick<Customer, 'id' | 'name' | 'phone' | 'email'>;
+  vehicle: WorkshopVehicle;
+  mechanic: WorkshopMechanic | null;
+  createdBy: { id: string; name: string };
+  convertedTicket: Pick<WorkshopTicket, 'id' | 'ticketNumber' | 'status'> | null;
+};
+
+export type WorkshopOverview = {
+  received: number;
+  inProgress: number;
+  awaitingApproval: number;
+  readyForDelivery: number;
+  today: WorkshopTicket[];
 };
 
 export type Product = {
@@ -331,6 +721,7 @@ export type Invoice = {
     amount: string | number;
     status: string;
     receiptNumber?: string | null;
+    reference?: string | null;
     cashSessionId?: string | null;
     cancelledAt?: string | null;
     cancelReason?: string | null;
@@ -380,11 +771,15 @@ export type CreateInvoicePayload = {
 };
 
 export type PosSalePayload = {
+  checkoutKey?: string;
+  electronicInvoiceRequested?: boolean;
+  ecfRecipientEmail?: string;
   customerId?: string;
   documentType: string;
   fiscalDocumentType?: 'RNC' | 'CEDULA';
   fiscalDocumentNumber?: string;
-  paymentMethod: string;
+  paymentMethod?: string;
+  payments?: Array<{ method: string; amount: number; amountReceived?: number; reference?: string }>;
   amountReceived?: number;
   cashSessionId?: string;
   orderId?: string;
@@ -566,6 +961,11 @@ export type SalesOrder = {
     invoiceNumber: string;
     total: string;
   } | null;
+  workshopTicket: {
+    id: string;
+    ticketNumber: string;
+    vehicle: { licensePlate: string | null; make: string; model: string; year?: number | null };
+  } | null;
   creditApproval: CreditSaleApproval | null;
   items: Array<{
     id: string;
@@ -584,6 +984,46 @@ export type SalesOrder = {
     total: string;
     product: Product | null;
   }>;
+};
+
+export type DocumentEmailHistory = {
+  id: string;
+  action: 'DOCUMENT_EMAIL_SENT' | 'DOCUMENT_EMAIL_FAILED';
+  createdAt: string;
+  metadata: {
+    status?: 'SENT' | 'FAILED';
+    recipient?: string;
+    sentAt?: string;
+    failedAt?: string;
+    error?: string;
+    providerMessageId?: string;
+    templateId?: string | null;
+  } | null;
+};
+
+export type DocumentEmailDelivery = {
+  status: 'SENT';
+  recipient: string;
+  sentAt: string;
+  providerMessageId: string;
+};
+
+export type QuotationActivity = {
+  id: string;
+  entity: 'SalesOrder' | 'WorkshopTicket';
+  entityId: string | null;
+  action: 'DOCUMENT_EMAIL_SENT' | 'DOCUMENT_EMAIL_FAILED' | 'WORKSHOP_TICKET_APPROVAL_RECORDED';
+  createdAt: string;
+  metadata: {
+    status?: 'SENT' | 'FAILED';
+    recipient?: string;
+    sentAt?: string;
+    failedAt?: string;
+    error?: string;
+    documentNumber?: string;
+    approvalStatus?: WorkshopApprovalStatus;
+  } | null;
+  user: { id: string; name: string } | null;
 };
 
 export type CreateSalesOrderPayload = {
@@ -753,6 +1193,7 @@ export type Employee = {
   userId: string;
   employeeCode: string | null;
   jobTitle: string | null;
+  documentNumber: string | null;
   status: string;
   createdAt: string;
   user: {
@@ -765,6 +1206,7 @@ export type Employee = {
       id: string;
       role: string;
       status: string;
+      permissionOverrides: Record<string, boolean> | null;
       canUsePos: boolean;
       canOpenCashSession: boolean;
       canCloseCashSession: boolean;
@@ -810,6 +1252,13 @@ export type CashSession = {
   movements?: CashSessionMovement[];
   claimedSalesOrders?: SalesOrder[];
   invoices?: Invoice[];
+};
+
+export type PaymentCashSession = {
+  id: string;
+  status: string;
+  cashRegister: { id: string; name: string };
+  openedBy: { id: string; name: string };
 };
 
 export type CashSessionMovement = {
@@ -1726,6 +2175,22 @@ const apiMessageTranslations: Record<string, string> = {
     'Demasiados intentos de captura. Espera unos minutos e inténtalo de nuevo.',
 };
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+export function getCurrentAccess(tenantId: string, accessToken: string) {
+  return fetchJson<{
+    user: LoginResponse['user'];
+    role: string;
+    permissions: Record<string, boolean>;
+  }>('/auth/me', { headers: { 'x-tenant-id': tenantId, Authorization: `Bearer ${accessToken}` } });
+}
+
 async function fetchJson<T>(path: string, options?: RequestInit) {
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
@@ -1737,7 +2202,7 @@ async function fetchJson<T>(path: string, options?: RequestInit) {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(getApiErrorMessage(body, response.status));
+    throw new ApiError(getApiErrorMessage(body, response.status), response.status);
   }
 
   if (response.status === 204) {
@@ -2170,8 +2635,13 @@ export function rejectReturnRequest(
   });
 }
 
-export function getInvoice(tenantId: string, accessToken: string, invoiceId: string) {
-  return fetchJson<Invoice>(`/invoices/${invoiceId}`, {
+export function getInvoice(
+  tenantId: string,
+  accessToken: string,
+  invoiceId: string,
+  receipt = false,
+) {
+  return fetchJson<Invoice>(`/invoices/${invoiceId}${receipt ? '/receipt' : ''}`, {
     headers: tenantHeaders(tenantId, accessToken),
   });
 }
@@ -2202,6 +2672,12 @@ export function getEmployees(tenantId: string, accessToken: string) {
   });
 }
 
+export function getEmployeeUserLimit(tenantId: string, accessToken: string) {
+  return fetchJson<{ limit: number; used: number; available: number }>('/employees/limit', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
 export function getEmployee(tenantId: string, accessToken: string, employeeId: string) {
   return fetchJson<Employee>(`/employees/${employeeId}`, {
     headers: tenantHeaders(tenantId, accessToken),
@@ -2211,7 +2687,7 @@ export function getEmployee(tenantId: string, accessToken: string, employeeId: s
 export function createEmployee(
   tenantId: string,
   accessToken: string,
-  payload: Record<string, string | boolean | undefined>,
+  payload: Record<string, string | boolean | Record<string, boolean> | undefined>,
 ) {
   return fetchJson<Employee>('/employees', {
     method: 'POST',
@@ -2224,7 +2700,7 @@ export function updateEmployee(
   tenantId: string,
   accessToken: string,
   employeeId: string,
-  payload: Record<string, string | boolean | undefined>,
+  payload: Record<string, string | boolean | Record<string, boolean> | undefined>,
 ) {
   return fetchJson<Employee>(`/employees/${employeeId}`, {
     method: 'PATCH',
@@ -2235,6 +2711,12 @@ export function updateEmployee(
 
 export function getCashSessions(tenantId: string, accessToken: string) {
   return fetchJson<CashSession[]>('/cash/sessions', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getPaymentCashSessions(tenantId: string, accessToken: string) {
+  return fetchJson<PaymentCashSession[]>('/cash/sessions/payment-options', {
     headers: tenantHeaders(tenantId, accessToken),
   });
 }
@@ -2605,6 +3087,7 @@ export function getSupplierInvoices(
     dueTo?: string;
     overdue?: boolean;
   } = {},
+  payables = false,
 ) {
   const query = new URLSearchParams();
   if (filters.q?.trim()) query.set('q', filters.q.trim());
@@ -2614,9 +3097,20 @@ export function getSupplierInvoices(
   if (filters.dueTo) query.set('dueTo', filters.dueTo);
   if (filters.overdue !== undefined) query.set('overdue', String(filters.overdue));
   const suffix = query.size ? `?${query.toString()}` : '';
-  return fetchJson<SupplierInvoice[]>(`/supplier-invoices${suffix}`, {
-    headers: tenantHeaders(tenantId, accessToken),
-  });
+  return fetchJson<SupplierInvoice[]>(
+    `/supplier-invoices${payables ? '/payables/invoices' : ''}${suffix}`,
+    {
+      headers: tenantHeaders(tenantId, accessToken),
+    },
+  );
+}
+
+export function getPayableInvoices(
+  tenantId: string,
+  accessToken: string,
+  filters?: Parameters<typeof getSupplierInvoices>[2],
+) {
+  return getSupplierInvoices(tenantId, accessToken, filters, true);
 }
 
 export function getSupplierInvoice(tenantId: string, accessToken: string, invoiceId: string) {
@@ -2990,4 +3484,552 @@ export function cancelReceivablePayment(
     headers: tenantHeaders(tenantId, accessToken),
     body: JSON.stringify(payload),
   });
+}
+
+export function getWorkshopOverview(tenantId: string, accessToken: string) {
+  return fetchJson<WorkshopOverview>('/workshop/overview', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getWorkshopVehicles(tenantId: string, accessToken: string, customerId?: string) {
+  const query = customerId ? `?customerId=${encodeURIComponent(customerId)}` : '';
+  return fetchJson<WorkshopVehicle[]>(`/workshop/vehicles${query}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getWorkshopVehicleHistory(
+  tenantId: string,
+  accessToken: string,
+  vehicleId: string,
+) {
+  return fetchJson<WorkshopVehicleHistory>(`/workshop/vehicles/${vehicleId}/history`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createWorkshopVehicle(
+  tenantId: string,
+  accessToken: string,
+  payload: {
+    customerId: string;
+    vehicleType?: WorkshopVehicleType;
+    licensePlate?: string;
+    make: string;
+    model: string;
+    year?: number;
+    color?: string;
+    vin?: string;
+    mileage?: number;
+    notes?: string;
+  },
+) {
+  return fetchJson<WorkshopVehicle>('/workshop/vehicles', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWorkshopVehicle(
+  tenantId: string,
+  accessToken: string,
+  vehicleId: string,
+  payload: Partial<{
+    customerId: string;
+    vehicleType: WorkshopVehicleType;
+    licensePlate: string;
+    make: string;
+    model: string;
+    year: number;
+    color: string;
+    vin: string;
+    mileage: number;
+    notes: string;
+  }>,
+) {
+  return fetchJson<WorkshopVehicle>(`/workshop/vehicles/${vehicleId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWorkshopMechanics(tenantId: string, accessToken: string) {
+  return fetchJson<WorkshopMechanic[]>('/workshop/mechanics', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getWorkshopBays(tenantId: string, accessToken: string) {
+  return fetchJson<WorkshopBay[]>('/workshop/bays', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createWorkshopBay(
+  tenantId: string,
+  accessToken: string,
+  payload: { code: string; name: string; notes?: string },
+) {
+  return fetchJson<WorkshopBay>('/workshop/bays', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWorkshopBay(
+  tenantId: string,
+  accessToken: string,
+  bayId: string,
+  payload: Partial<{ code: string; name: string; notes: string; status: WorkshopBayStatus }>,
+) {
+  return fetchJson<WorkshopBay>(`/workshop/bays/${bayId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWorkshopServices(
+  tenantId: string,
+  accessToken: string,
+  includeInactive = false,
+) {
+  return fetchJson<WorkshopService[]>(
+    `/workshop/services${includeInactive ? '?includeInactive=true' : ''}`,
+    { headers: tenantHeaders(tenantId, accessToken) },
+  );
+}
+
+export type WorkshopServicePayload = {
+  code: string;
+  name: string;
+  category?: string;
+  description?: string;
+  defaultPrice: number;
+  estimatedMinutes?: number;
+  taxRate?: number;
+  active?: boolean;
+};
+
+export function createWorkshopService(
+  tenantId: string,
+  accessToken: string,
+  payload: WorkshopServicePayload,
+) {
+  return fetchJson<WorkshopService>('/workshop/services', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWorkshopService(
+  tenantId: string,
+  accessToken: string,
+  serviceId: string,
+  payload: Partial<WorkshopServicePayload>,
+) {
+  return fetchJson<WorkshopService>(`/workshop/services/${serviceId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWorkshopTickets(
+  tenantId: string,
+  accessToken: string,
+  status?: WorkshopTicketStatus,
+) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return fetchJson<WorkshopTicket[]>(`/workshop/tickets${query}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export type WorkshopAppointmentPayload = {
+  customerId: string;
+  vehicleId: string;
+  mechanicId?: string;
+  startsAt: string;
+  estimatedMinutes?: number;
+  reason: string;
+  notes?: string;
+};
+
+export function getWorkshopAppointments(
+  tenantId: string,
+  accessToken: string,
+  filters?: { status?: WorkshopAppointmentStatus; from?: string; to?: string },
+) {
+  const search = new URLSearchParams();
+  if (filters?.status) search.set('status', filters.status);
+  if (filters?.from) search.set('from', filters.from);
+  if (filters?.to) search.set('to', filters.to);
+  const suffix = search.size ? `?${search.toString()}` : '';
+  return fetchJson<WorkshopAppointment[]>(`/workshop/appointments${suffix}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getDocumentEmailHistory(
+  tenantId: string,
+  accessToken: string,
+  kind: 'quotations' | 'workshop-quotes' | 'invoices',
+  documentId: string,
+) {
+  return fetchJson<DocumentEmailHistory[]>(`/document-emails/${kind}/${documentId}`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getQuotationActivity(tenantId: string, accessToken: string) {
+  return fetchJson<QuotationActivity[]>('/document-emails/quotation-activity', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function sendDocumentEmail(
+  tenantId: string,
+  accessToken: string,
+  kind: 'quotations' | 'workshop-quotes' | 'invoices',
+  documentId: string,
+  recipient: string,
+) {
+  return fetchJson<DocumentEmailDelivery>(`/document-emails/${kind}/${documentId}`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify({ recipient }),
+  });
+}
+
+export function createWorkshopAppointment(
+  tenantId: string,
+  accessToken: string,
+  payload: WorkshopAppointmentPayload,
+) {
+  return fetchJson<WorkshopAppointment>('/workshop/appointments', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWorkshopAppointment(
+  tenantId: string,
+  accessToken: string,
+  appointmentId: string,
+  payload: Partial<WorkshopAppointmentPayload> & { status?: WorkshopAppointmentStatus },
+) {
+  return fetchJson<WorkshopAppointment>(`/workshop/appointments/${appointmentId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function convertWorkshopAppointmentToReception(
+  tenantId: string,
+  accessToken: string,
+  appointmentId: string,
+) {
+  return fetchJson<WorkshopTicket>(`/workshop/appointments/${appointmentId}/convert-to-reception`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export type WorkshopTicketPayload = {
+  customerId: string;
+  vehicleId: string;
+  complaint: string;
+  priority?: WorkshopTicketPriority;
+  diagnosis?: string;
+  internalNotes?: string;
+  customerNotes?: string;
+  promisedAt?: string;
+  estimatedTotal?: number;
+  mechanicIds?: string[];
+  lines?: Array<{
+    productId?: string;
+    serviceId?: string;
+    type: 'LABOR' | 'PART' | 'OTHER';
+    description: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
+};
+
+export function createWorkshopTicket(
+  tenantId: string,
+  accessToken: string,
+  payload: WorkshopTicketPayload,
+) {
+  return fetchJson<WorkshopTicket>('/workshop/tickets', {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWorkshopTicket(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: Partial<Omit<WorkshopTicketPayload, 'customerId' | 'vehicleId'>> & {
+    status?: WorkshopTicketStatus;
+  },
+) {
+  return fetchJson<WorkshopTicket>(`/workshop/tickets/${ticketId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export type WorkshopReceptionPayload = {
+  mileage: number;
+  fuelLevel?: string;
+  accessories?: string;
+  belongings?: string;
+  exteriorCondition?: string;
+  interiorCondition?: string;
+  warningLights?: string;
+  observations?: string;
+  bay?: string;
+  bayId?: string;
+  initialMechanicId?: string;
+};
+
+export function createWorkshopReception(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: WorkshopReceptionPayload,
+) {
+  return fetchJson<WorkshopReception>(`/workshop/tickets/${ticketId}/reception`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWorkshopReception(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: Partial<WorkshopReceptionPayload>,
+) {
+  return fetchJson<WorkshopReception>(`/workshop/tickets/${ticketId}/reception`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export type WorkshopQualityCheckPayload = {
+  status: Exclude<WorkshopQualityStatus, 'PENDING'>;
+  workCompleted: boolean;
+  partsVerified: boolean;
+  leaksChecked: boolean;
+  fluidsChecked: boolean;
+  warningLightsChecked: boolean;
+  roadTested: boolean;
+  toolsRemoved: boolean;
+  vehicleCleaned: boolean;
+  observations?: string;
+};
+
+export function saveWorkshopQualityCheck(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: WorkshopQualityCheckPayload,
+) {
+  return fetchJson<WorkshopQualityCheck>(`/workshop/tickets/${ticketId}/quality-check`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export type WorkshopDeliveryPayload = {
+  recipientName: string;
+  mileageOut: number;
+  recommendations?: string;
+  notes?: string;
+};
+
+export function createWorkshopDelivery(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: WorkshopDeliveryPayload,
+) {
+  return fetchJson<WorkshopDelivery>(`/workshop/tickets/${ticketId}/delivery`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export type WorkshopInspectionPayload = {
+  items: Array<{
+    code: string;
+    label: string;
+    result: WorkshopInspectionResult;
+    comment?: string;
+    recommendation?: string;
+  }>;
+};
+
+export function saveWorkshopInspection(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: WorkshopInspectionPayload,
+) {
+  return fetchJson<WorkshopInspection>(`/workshop/tickets/${ticketId}/inspection`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function respondWorkshopApproval(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: WorkshopApprovalResponse,
+) {
+  return fetchJson<WorkshopTicket>(`/workshop/tickets/${ticketId}/approval`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWorkshopChangeOrders(tenantId: string, accessToken: string, ticketId: string) {
+  return fetchJson<WorkshopChangeOrder[]>(`/workshop/tickets/${ticketId}/change-orders`, {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function createWorkshopChangeOrder(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: {
+    title: string;
+    description?: string;
+    lines: Array<{
+      productId?: string;
+      serviceId?: string;
+      type: 'LABOR' | 'PART' | 'OTHER';
+      description: string;
+      quantity: number;
+      unitPrice: number;
+    }>;
+  },
+) {
+  return fetchJson<WorkshopChangeOrder>(`/workshop/tickets/${ticketId}/change-orders`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function respondWorkshopChangeOrder(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  changeOrderId: string,
+  payload: WorkshopAuthorizationEvidence & {
+    status: Extract<WorkshopChangeOrderStatus, 'APPROVED' | 'REJECTED' | 'CANCELLED'>;
+    note?: string;
+  },
+) {
+  return fetchJson<WorkshopChangeOrder>(
+    `/workshop/tickets/${ticketId}/change-orders/${changeOrderId}/respond`,
+    {
+      method: 'POST',
+      headers: tenantHeaders(tenantId, accessToken),
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export type WorkshopTaskInput = {
+  kind: 'DIAGNOSIS' | 'REPAIR';
+  ticketLineId?: string;
+  title: string;
+  employeeId?: string;
+  description?: string;
+  estimatedMinutes?: number;
+};
+export type WorkshopTaskUpdate = Partial<WorkshopTaskInput> & {
+  status?: WorkshopTaskStatus;
+  cancellationReason?: string;
+};
+
+export function createWorkshopTask(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: WorkshopTaskInput,
+) {
+  return fetchJson<WorkshopTask>(`/workshop/tickets/${ticketId}/tasks`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWorkshopTask(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  taskId: string,
+  payload: WorkshopTaskUpdate,
+) {
+  return fetchJson<WorkshopTask>(`/workshop/tickets/${ticketId}/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function moveWorkshopPart(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  lineId: string,
+  action: 'consume' | 'return' | 'release',
+  payload: { quantity: number; operationKey: string; note?: string },
+) {
+  return fetchJson<WorkshopTicket>(`/workshop/tickets/${ticketId}/parts/${lineId}/${action}`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function sendWorkshopTicketToCashier(
+  tenantId: string,
+  accessToken: string,
+  ticketId: string,
+  payload: { electronicInvoiceRequested?: boolean; ecfRecipientEmail?: string },
+) {
+  return fetchJson<{ id: string; orderNumber: string }>(
+    `/workshop/tickets/${ticketId}/send-to-cashier`,
+    {
+      method: 'POST',
+      headers: tenantHeaders(tenantId, accessToken),
+      body: JSON.stringify(payload),
+    },
+  );
 }
