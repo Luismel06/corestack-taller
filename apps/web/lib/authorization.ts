@@ -58,6 +58,9 @@ export function canAccessPath(session: AuthSession | null | undefined, pathname:
 
   const isPath = (root: string) => pathname === root || pathname.startsWith(`${root}/`);
   if (isPath('/access')) return true;
+  // Toma de Órdenes works exclusively from its agenda workspace. The role keeps
+  // its API permissions for reception actions, but must not enter admin screens.
+  if (session.role === 'ORDER_TAKER') return isPath('/workshop/agenda');
   // Specific route policies precede role fallbacks: an explicit denial also applies to admins.
   if (isPath('/workshop/vehicles')) return hasPermission(session, 'vehicles.view');
   if (isPath('/workshop/agenda')) return hasPermission(session, 'appointments.manage');

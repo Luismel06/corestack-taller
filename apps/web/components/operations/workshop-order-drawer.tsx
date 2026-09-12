@@ -177,6 +177,7 @@ export function WorkshopOrderDrawer({
   });
 
   if (!ticket) return null;
+  const isOrderTaker = session.role === 'ORDER_TAKER';
   const canEditQuote = ['RECEIVED', 'DIAGNOSIS'].includes(ticket.status) && !['APPROVED', 'PARTIALLY_APPROVED'].includes(ticket.approvalStatus);
   const pending = receptionMutation.isPending || mechanicMutation.isPending || serviceMutation.isPending || statusMutation.isPending;
 
@@ -224,7 +225,8 @@ export function WorkshopOrderDrawer({
           <section className="rounded-2xl border bg-white p-5 shadow-sm">
             <h3 className="mb-4 text-lg font-semibold">Siguiente acción</h3>
             {ticket.status === 'DIAGNOSIS' ? <Button className="h-14 w-full text-base" disabled={pending || !ticket.inspection || ticket.lines.length === 0} onClick={() => statusMutation.mutate('AWAITING_APPROVAL')}><CheckCircle2 className="h-5 w-5" />Enviar cotización para aprobación</Button> : null}
-            {ticket.status === 'APPROVED' && !ticket.salesOrder?.invoice ? <Button asChild className="h-14 w-full text-base"><Link href={`/workshop?ticket=${ticket.id}`}><ChevronRight className="h-5 w-5" />Facturar antes de reparar</Link></Button> : null}
+            {ticket.status === 'APPROVED' && !ticket.salesOrder?.invoice && !isOrderTaker ? <Button asChild className="h-14 w-full text-base"><Link href={`/workshop?ticket=${ticket.id}`}><ChevronRight className="h-5 w-5" />Facturar antes de reparar</Link></Button> : null}
+            {ticket.status === 'APPROVED' && !ticket.salesOrder?.invoice && isOrderTaker ? <p className="rounded-xl bg-amber-50 p-4 text-amber-900">La orden está pendiente de facturación por Caja o Administración.</p> : null}
             {ticket.status === 'APPROVED' && ticket.salesOrder?.invoice && ticket.promisedAt ? <Button className="h-14 w-full text-base" disabled={pending} onClick={() => statusMutation.mutate('IN_PROGRESS')}><Wrench className="h-5 w-5" />Iniciar reparación</Button> : null}
             {ticket.status === 'APPROVED' && ticket.salesOrder?.invoice && !ticket.promisedAt ? <p className="rounded-xl bg-amber-50 p-4 text-amber-900">Define la fecha estimada de entrega desde la orden completa antes de iniciar la reparación.</p> : null}
             {ticket.status === 'AWAITING_APPROVAL' ? <p className="rounded-xl bg-amber-50 p-4 text-amber-900">Esperando la respuesta del cliente. Registra la aprobación desde la orden completa.</p> : null}
@@ -232,7 +234,7 @@ export function WorkshopOrderDrawer({
           </section>
         </div>
 
-        <footer className="border-t bg-white p-4 sm:p-5"><Button asChild className="h-14 w-full text-base"><Link href={`/workshop?ticket=${ticket.id}`}>Abrir expediente completo <ChevronRight className="h-5 w-5" /></Link></Button></footer>
+        {!isOrderTaker ? <footer className="border-t bg-white p-4 sm:p-5"><Button asChild className="h-14 w-full text-base"><Link href={`/workshop?ticket=${ticket.id}`}>Abrir expediente completo <ChevronRight className="h-5 w-5" /></Link></Button></footer> : null}
       </aside>
     </div>
   );
