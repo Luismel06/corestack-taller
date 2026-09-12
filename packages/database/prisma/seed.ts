@@ -139,9 +139,9 @@ async function main() {
 
   const allpaTenant = await prisma.tenant.create({
     data: {
-      name: 'X',
-      commercialName: 'X',
-      legalName: 'X',
+      name: 'Soluciones Automotriz C&R',
+      commercialName: 'Soluciones Automotriz C&R',
+      legalName: 'Soluciones Automotriz C&R',
       slug: 'x-workshop',
       email: 'admin@x.local',
       phone: '809-555-0100',
