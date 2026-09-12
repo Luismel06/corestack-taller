@@ -106,7 +106,104 @@ function appointmentTime(value: string) {
   return new Date(value).toLocaleTimeString('es-DO', {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: true,
   });
+}
+
+function appointmentTimeParts(value: string) {
+  const [date = '', time = '00:00'] = value.split('T');
+  const [hourValue = '0', minute = '00'] = time.split(':');
+  const hour24 = Number(hourValue);
+
+  return {
+    date,
+    hour: String(hour24 % 12 || 12).padStart(2, '0'),
+    minute,
+    period: hour24 >= 12 ? 'PM' : 'AM',
+  } as const;
+}
+
+function updateAppointmentTime(
+  value: string,
+  changes: Partial<{ date: string; hour: string; minute: string; period: 'AM' | 'PM' }>,
+) {
+  const current = appointmentTimeParts(value);
+  const next = { ...current, ...changes };
+  const hour12 = Number(next.hour);
+  const hour24 = (hour12 % 12) + (next.period === 'PM' ? 12 : 0);
+  return `${next.date}T${String(hour24).padStart(2, '0')}:${next.minute}`;
+}
+
+function AppointmentDateTimeInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const parts = appointmentTimeParts(value);
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <Input
+        required
+        type="date"
+        aria-label="Fecha de la cita"
+        value={parts.date}
+        onChange={(event) =>
+          onChange(updateAppointmentTime(value, { date: event.target.value }))
+        }
+      />
+      <div className="grid grid-cols-[1fr_auto_1fr_1.2fr] items-center gap-1">
+        <select
+          aria-label="Hora"
+          className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+          value={parts.hour}
+          onChange={(event) =>
+            onChange(updateAppointmentTime(value, { hour: event.target.value }))
+          }
+        >
+          {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map(
+            (hour) => (
+              <option key={hour} value={hour}>
+                {hour}
+              </option>
+            ),
+          )}
+        </select>
+        <span className="font-semibold text-slate-500">:</span>
+        <select
+          aria-label="Minutos"
+          className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+          value={parts.minute}
+          onChange={(event) =>
+            onChange(updateAppointmentTime(value, { minute: event.target.value }))
+          }
+        >
+          {Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, '0')).map(
+            (minute) => (
+              <option key={minute} value={minute}>
+                {minute}
+              </option>
+            ),
+          )}
+        </select>
+        <select
+          aria-label="Período"
+          className="h-10 rounded-md border border-input bg-background px-2 text-sm font-semibold"
+          value={parts.period}
+          onChange={(event) =>
+            onChange(
+              updateAppointmentTime(value, { period: event.target.value as 'AM' | 'PM' }),
+            )
+          }
+        >
+          <option value="AM">a. m.</option>
+          <option value="PM">p. m.</option>
+        </select>
+      </div>
+    </div>
+  );
 }
 
 const emptyForm = () => ({
@@ -513,12 +610,10 @@ export function WorkshopAgendaView() {
                   </div>
                 </Field>
                 <Field label="Fecha y hora">
-                  <Input
-                    required
-                    type="datetime-local"
+                  <AppointmentDateTimeInput
                     value={form.startsAt}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, startsAt: event.target.value }))
+                    onChange={(startsAt) =>
+                      setForm((current) => ({ ...current, startsAt }))
                     }
                   />
                 </Field>
@@ -1551,7 +1646,7 @@ function TabletAppointmentCard({
           {new Date(appointment.startsAt).toLocaleTimeString('es-DO', {
             hour: '2-digit',
             minute: '2-digit',
-            hour12: false,
+            hour12: true,
           })}
         </p>
         <p className="mt-1 text-xs font-medium text-slate-400">
