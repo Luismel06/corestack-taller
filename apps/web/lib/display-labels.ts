@@ -113,7 +113,7 @@ const roleLabels: Record<string, string> = {
   ADMIN: 'Administrador',
   ACCOUNTANT: 'Contador',
   CASHIER: 'Cajero',
-  ORDER_TAKER: 'Toma de Órdenes',
+  ORDER_TAKER: 'Coordinador',
   MECHANIC: 'Mecánico (recurso asignable)',
 };
 

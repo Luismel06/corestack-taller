@@ -9,14 +9,15 @@ import {
 import Link from 'next/link';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Button } from '@/components/ui/button';
+import { AccountantDashboardView } from '@/components/dashboard/accountant-dashboard-view';
 import { VehicleIllustration } from '@/components/operations/vehicle-illustration';
 import {
-  getDashboardSummary, getWorkshopAppointments, getWorkshopTickets,
-  type DashboardSummary, type WorkshopAppointment, type WorkshopAppointmentStatus,
+  getOperationalDashboardSummary, getWorkshopAppointments, getWorkshopTickets,
+  type OperationalDashboardSummary, type WorkshopAppointment, type WorkshopAppointmentStatus,
   type WorkshopTicket, type WorkshopTicketStatus,
 } from '@/lib/api';
 import { getSession, type AuthSession } from '@/lib/auth-session';
-import { canAccessPath } from '@/lib/authorization';
+import { canAccessPath, isAccountantSession } from '@/lib/authorization';
 import { cn, formatCurrency } from '@/lib/utils';
 
 const ticketLabels: Record<WorkshopTicketStatus, string> = {
@@ -33,9 +34,9 @@ export function DashboardView() {
   const session = getSession();
   const today = dayBounds();
   const summaryQuery = useQuery({
-    queryKey: ['dashboard-summary', session?.tenantId],
-    queryFn: () => getDashboardSummary(session!.tenantId, session!.accessToken),
-    enabled: Boolean(session), refetchInterval: 60_000,
+    queryKey: ['dashboard-operational-summary', session?.tenantId],
+    queryFn: () => getOperationalDashboardSummary(session!.tenantId, session!.accessToken),
+    enabled: Boolean(session && !isAccountantSession(session)), refetchInterval: 60_000,
   });
   const appointmentsQuery = useQuery({
     queryKey: ['workshop-appointments', session?.tenantId, 'dashboard-today'],
@@ -51,6 +52,7 @@ export function DashboardView() {
   });
 
   if (!session) return <DashboardMessage title="Sesión requerida" detail="Inicia sesión para consultar el panel operativo." />;
+  if (isAccountantSession(session)) return <AccountantDashboardView />;
   if (summaryQuery.isLoading) return <DashboardSkeleton />;
   if (!summaryQuery.data) return <DashboardMessage title="No se pudo cargar el panel" detail="Comprueba la conexión con la API e inténtalo nuevamente." />;
 
@@ -146,7 +148,7 @@ function ActiveOrders({ tickets, loading }: { tickets: WorkshopTicket[]; loading
 }
 
 type AttentionItem = { label: string; detail: string; value: number; href: string; icon: LucideIcon; tone: Tone };
-function buildAttention(summary: DashboardSummary, delayed: number, lateAppointments: number, ready: number, approval: number): AttentionItem[] { return [
+function buildAttention(summary: OperationalDashboardSummary, delayed: number, lateAppointments: number, ready: number, approval: number): AttentionItem[] { return [
   { label: 'cotizaciones pendientes', detail: 'Requieren aprobación del cliente', value: approval, href: '/quotations', icon: FileText, tone: 'orange' },
   { label: 'órdenes retrasadas', detail: 'Exceden el tiempo prometido', value: delayed, href: '/workshop', icon: Clock3, tone: 'red' },
   { label: 'productos con stock bajo', detail: 'Revisar inventario de repuestos', value: summary.lowStockProducts, href: '/products', icon: Package, tone: 'amber' },
@@ -157,7 +159,7 @@ function buildAttention(summary: DashboardSummary, delayed: number, lateAppointm
 function AttentionList({ items, session }: { items: AttentionItem[]; session: AuthSession }) { const visible = items.filter((item) => canAccessPath(session, item.href)).slice(0, 5); if (!visible.length) return <EmptyState text="Todo está al día. No hay alertas operativas." />; return <div className="mt-1 divide-y divide-zinc-100">{visible.map((item) => { const Icon = item.icon; return <Link href={item.href} key={item.label} className="flex items-center gap-3 py-2"><span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', tones[item.tone])}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="text-xs font-semibold text-slate-950">{item.value} {item.label}</p><p className="truncate text-[11px] text-muted-foreground">{item.detail}</p></div></Link>; })}</div>; }
 
 type ActivityItem = { id: string; label: string; detail: string; createdAt: string; tone: Tone };
-function buildActivity(tickets: WorkshopTicket[], summary: DashboardSummary): ActivityItem[] {
+function buildActivity(tickets: WorkshopTicket[], summary: OperationalDashboardSummary): ActivityItem[] {
   const labels: Partial<Record<WorkshopTicketStatus, string>> = { RECEIVED: 'Vehículo recibido', DIAGNOSIS: 'Diagnóstico iniciado', AWAITING_APPROVAL: 'Cotización preparada', APPROVED: 'Aprobación recibida', IN_PROGRESS: 'Reparación iniciada', READY_FOR_DELIVERY: 'Vehículo terminado', DELIVERED: 'Vehículo entregado' };
   const workshop = tickets.flatMap((ticket) => ticket.statusEvents.map((event) => ({ id: event.id, label: labels[event.toStatus] ?? 'Estado actualizado', detail: `${ticket.ticketNumber} · ${ticket.vehicle.licensePlate ?? vehicleName(ticket.vehicle)}`, createdAt: event.createdAt, tone: ticketTone(event.toStatus) })));
   const payments = summary.recentInvoices.map((invoice) => ({ id: `invoice-${invoice.id}`, label: 'Cobro registrado', detail: `${invoice.invoiceNumber} · ${invoice.customerName}`, createdAt: invoice.issuedAt ?? invoice.createdAt, tone: 'green' as Tone }));
@@ -171,7 +173,7 @@ function QuickActions({ session }: { session: AuthSession }) { const actions = [
   { label: 'Cotizaciones', href: '/quotations', icon: FileText }, { label: 'Sesiones de caja', href: '/cash/sessions', icon: CircleDollarSign },
   { label: 'Clientes y vehículos', href: '/customers', icon: Users }, { label: 'Inventario', href: '/products', icon: Package },
 ].filter((item) => canAccessPath(session, item.href)); return <div className="mt-2 grid grid-cols-2 gap-2">{actions.map((item) => { const Icon = item.icon; return <Link key={item.label} href={item.href} className="flex min-h-[4.4rem] flex-col items-center justify-center gap-1.5 rounded-lg border border-zinc-200 px-2 text-center text-xs font-semibold text-slate-800 transition hover:border-blue-200 hover:bg-blue-50/40"><Icon className="h-5 w-5 text-blue-700" />{item.label}</Link>; })}</div>; }
-function NetSalesChart({ data }: { data: NonNullable<DashboardSummary['salesLast7Days']> }) { return <div className="mt-2 h-[12.5rem] w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}><CartesianGrid vertical={false} stroke="#e4e4e7" /><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} /><YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} tickFormatter={compactMoney} /><Tooltip formatter={(value) => formatCurrency(Number(value))} /><Bar dataKey="total" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={38} /></BarChart></ResponsiveContainer></div>; }
+function NetSalesChart({ data }: { data: NonNullable<OperationalDashboardSummary['salesLast7Days']> }) { return <div className="mt-2 h-[12.5rem] w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}><CartesianGrid vertical={false} stroke="#e4e4e7" /><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} /><YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} tickFormatter={compactMoney} /><Tooltip formatter={(value) => formatCurrency(Number(value))} /><Bar dataKey="total" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={38} /></BarChart></ResponsiveContainer></div>; }
 
 function SoftBadge({ label, tone }: { label: string; tone: Tone }) { return <span className={cn('inline-flex max-w-32 shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold', tones[tone])}>{label}</span>; }
 function ticketTone(status: WorkshopTicketStatus): Tone { if (status === 'READY_FOR_DELIVERY' || status === 'DELIVERED') return 'green'; if (status === 'AWAITING_APPROVAL') return 'orange'; if (status === 'IN_PROGRESS') return 'blue'; if (status === 'CANCELLED') return 'red'; if (status === 'APPROVED') return 'violet'; return 'amber'; }
@@ -183,7 +185,7 @@ function formatTime(date: Date) { return new Intl.DateTimeFormat('es-DO', { hour
 function formatFullDate(date: Date) { return new Intl.DateTimeFormat('es-DO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date); }
 function getGreeting() { const hour = new Date().getHours(); return hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'; }
 function dayBounds() { const start = new Date(); start.setHours(0, 0, 0, 0); const end = new Date(start); end.setDate(end.getDate() + 1); return { start, end }; }
-function sumDailySales(data: NonNullable<DashboardSummary['salesLast7Days']>) { return data.reduce((sum, item) => sum + item.total, 0); }
+function sumDailySales(data: NonNullable<OperationalDashboardSummary['salesLast7Days']>) { return data.reduce((sum, item) => sum + item.total, 0); }
 function compactMoney(value: number) { return Math.abs(value) >= 1000 ? `RD$${Math.round(value / 1000)}k` : `RD$${Math.round(value)}`; }
 function EmptyState({ text }: { text: string }) { return <div className="grid min-h-44 place-items-center rounded-lg bg-zinc-50 px-5 text-center text-xs text-muted-foreground">{text}</div>; }
 function LoadingRows() { return <div className="mt-2 space-y-2">{Array.from({ length: 5 }, (_, i) => <div key={i} className="h-9 animate-pulse rounded-lg bg-zinc-100" />)}</div>; }

@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { WorkshopAppointmentStatus, WorkshopTicketStatus } from '@qorvex/database';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
@@ -8,7 +21,6 @@ import { TenantMembershipGuard } from '../../common/guards/tenant-membership.gua
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import {
   CreateWorkshopTicketDto,
-  CreateWorkshopBayDto,
   CreateWorkshopChangeOrderDto,
   CreateWorkshopTaskDto,
   CreateWorkshopServiceDto,
@@ -27,7 +39,6 @@ import {
   CreateWorkshopDeliveryDto,
   SaveWorkshopInspectionDto,
   UpdateWorkshopVehicleDto,
-  UpdateWorkshopBayDto,
   WorkshopPartMovementDto,
 } from './dto/workshop.dto';
 import { WorkshopService } from './workshop.service';
@@ -60,29 +71,6 @@ export class WorkshopController {
   @Get('mechanics')
   mechanics(@TenantId() tenantId: string) {
     return this.workshop.mechanics(tenantId);
-  }
-  @Get('bays')
-  bays(@TenantId() tenantId: string) {
-    return this.workshop.findBays(tenantId);
-  }
-  @Post('bays')
-  @RequirePermissions('bays.manage')
-  createBay(
-    @TenantId() tenantId: string,
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateWorkshopBayDto,
-  ) {
-    return this.workshop.createBay(tenantId, user.id, dto);
-  }
-  @Patch('bays/:id')
-  @RequirePermissions('bays.manage')
-  updateBay(
-    @TenantId() tenantId: string,
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-    @Body() dto: UpdateWorkshopBayDto,
-  ) {
-    return this.workshop.updateBay(tenantId, user.id, id, dto);
   }
   @Get('services')
   services(@TenantId() tenantId: string, @Query('includeInactive') includeInactive?: string) {
@@ -209,6 +197,18 @@ export class WorkshopController {
     return this.workshop.createReception(tenantId, user.id, id, dto);
   }
 
+  @Post('reception-images')
+  @RequirePermissions('reception.manage')
+  @UseInterceptors(FilesInterceptor('files', 2))
+  uploadReceptionImages(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFiles()
+    files: Array<{ originalname: string; mimetype?: string; buffer: Buffer; size: number }>,
+  ) {
+    return this.workshop.uploadReceptionImages(tenantId, user.id, files);
+  }
+
   @Patch('tickets/:id/reception')
   @RequirePermissions('reception.manage')
   updateReception(
@@ -268,13 +268,36 @@ export class WorkshopController {
       );
     if (dto.status === 'AWAITING_APPROVAL') requirePermissions(user, tenantId, 'quotes.create');
     if (dto.lines !== undefined) requirePermissions(user, tenantId, 'quotes.create');
+    if (dto.areaFindings !== undefined) requirePermissions(user, tenantId, 'quotes.create');
     if (dto.mechanicIds !== undefined) requirePermissions(user, tenantId, 'workorders.assign');
     if (dto.diagnosis !== undefined) requirePermissions(user, tenantId, 'workorders.diagnose');
     if (
-      Object.keys(dto).some((key) => !['status', 'lines', 'mechanicIds', 'diagnosis'].includes(key))
+      Object.keys(dto).some(
+        (key) => !['status', 'lines', 'areaFindings', 'mechanicIds', 'diagnosis'].includes(key),
+      )
     )
       requirePermissions(user, tenantId, 'workorders.edit');
     return this.workshop.updateTicket(tenantId, user.id, id, dto);
+  }
+
+  @Delete('tickets/:id')
+  @RequirePermissions('workorders.cancel')
+  deleteTicket(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.workshop.deleteTicket(tenantId, user.id, id);
+  }
+
+  @Post('tickets/:id/quote/revise')
+  @RequirePermissions('quotes.create')
+  reviseQuote(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.workshop.reviseQuote(tenantId, user.id, id);
   }
 
   @Post('tickets/:id/approval')

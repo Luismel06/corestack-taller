@@ -18,7 +18,6 @@ import { requirePermissions, userPermissions } from '../../common/authorization'
 import { legacyPermissionMap } from '@qorvex/permissions';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CloseCashSessionDto } from './dto/close-cash-session.dto';
-import { CreateCashRegisterDto } from './dto/create-cash-register.dto';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { OpenCashSessionDto } from './dto/open-cash-session.dto';
 
@@ -30,32 +29,6 @@ export class CashService {
     return this.prisma.cashRegister.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async createRegister(tenantId: string, user: AuthenticatedUser, dto: CreateCashRegisterDto) {
-    this.requireCashRegisterManagement(tenantId, user);
-
-    const name = dto.name.trim();
-    const location = dto.location?.trim() || null;
-    const existing = await this.prisma.cashRegister.findFirst({
-      where: {
-        tenantId,
-        name: { equals: name, mode: 'insensitive' },
-      },
-      select: { id: true },
-    });
-
-    if (existing) {
-      throw new BadRequestException('Ya existe una caja con ese nombre.');
-    }
-
-    return this.prisma.cashRegister.create({
-      data: {
-        tenantId,
-        name,
-        location,
-      },
     });
   }
 
@@ -403,19 +376,6 @@ export class CashService {
 
   private requireOpenCashSessionPermission(tenantId: string, user: AuthenticatedUser) {
     requirePermissions(user, tenantId, 'cash.open');
-    const membership = user.memberships.find((candidate) => candidate.tenantId === tenantId);
-    const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
-    if (!membership || adminRoles.includes(membership.role)) {
-      throw new ForbiddenException('Admins cannot open cash sessions.');
-    }
-  }
-
-  private requireCashRegisterManagement(tenantId: string, user: AuthenticatedUser) {
-    const membership = user.memberships.find((candidate) => candidate.tenantId === tenantId);
-    const adminRoles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN];
-    if (!membership || !adminRoles.includes(membership.role)) {
-      throw new ForbiddenException('Solo administradores pueden crear cajas.');
-    }
   }
 
   private requireCashLogAccess(tenantId: string, user: AuthenticatedUser) {

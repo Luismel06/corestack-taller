@@ -10,7 +10,6 @@ import {
   FileText,
   Filter,
   Loader2,
-  Mail,
   MoreHorizontal,
   Printer,
   Search,
@@ -45,7 +44,6 @@ import { hasPermission } from '@/lib/authorization';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { workshopQuoteApprovalBlocker } from '@/lib/workshop-quote';
 import { CancelReasonModal } from './cancel-reason-modal';
-import { DocumentEmailDialog } from './document-email-dialog';
 import { SessionRequired, useCurrentSession } from './session-required';
 import { VehicleIllustration } from './vehicle-illustration';
 import {
@@ -138,7 +136,6 @@ export function QuotationsView() {
   const [dateFilter, setDateFilter] = useState('');
   const [kpiFilter, setKpiFilter] = useState<QuoteKpi>('ALL');
   const [selected, setSelected] = useState<QuoteRecord | null>(null);
-  const [emailTarget, setEmailTarget] = useState<QuoteRecord | null>(null);
   const [cancelTarget, setCancelTarget] = useState<QuoteRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [authorizationTarget, setAuthorizationTarget] = useState<QuoteRecord | null>(null);
@@ -536,7 +533,7 @@ export function QuotationsView() {
               <Loader2 className="h-4 w-4 animate-spin" /> Cargando cotizaciones...
             </div>
           ) : pageRecords.length ? (
-            <QuotationTable records={pageRecords} onOpen={setSelected} onEmail={setEmailTarget} />
+            <QuotationTable records={pageRecords} onOpen={setSelected} />
           ) : (
             <EmptyQuotationState />
           )}
@@ -564,7 +561,6 @@ export function QuotationsView() {
               record={selected}
               pending={acceptMutation.isPending || requestApprovalMutation.isPending}
               onClose={() => setSelected(null)}
-              onEmail={() => setEmailTarget(selected)}
               onEdit={() =>
                 selected.source === 'WORKSHOP'
                   ? router.push(`/workshop?ticket=${selected.ticketId}`)
@@ -586,21 +582,6 @@ export function QuotationsView() {
             document.body,
           )
         : null}
-      {emailTarget ? (
-        <DocumentEmailDialog
-          open
-          session={session}
-          kind={emailTarget.source === 'WORKSHOP' ? 'workshop-quotes' : 'quotations'}
-          documentId={emailTarget.entityId}
-          documentNumber={emailTarget.code}
-          customerName={emailTarget.customerName}
-          defaultEmail={emailTarget.customerEmail}
-          onClose={() => {
-            setEmailTarget(null);
-            void queryClient.invalidateQueries({ queryKey: ['quotation-activity'] });
-          }}
-        />
-      ) : null}
       <CancelReasonModal
         open={Boolean(cancelTarget)}
         title="Cancelar cotización"
@@ -694,11 +675,9 @@ function QuoteStatusBadge({ status }: { status: QuoteUiStatus }) {
 function QuotationTable({
   records,
   onOpen,
-  onEmail,
 }: {
   records: QuoteRecord[];
   onOpen: (record: QuoteRecord) => void;
-  onEmail: (record: QuoteRecord) => void;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -712,7 +691,6 @@ function QuotationTable({
             <th className="px-3 py-3">Fecha</th>
             <th className="px-3 py-3 text-right">Total</th>
             <th className="px-3 py-3">Estado</th>
-            <th className="px-3 py-3">Envío</th>
             <th className="px-2 py-3">Acción</th>
           </tr>
         </thead>
@@ -745,9 +723,6 @@ function QuotationTable({
               </td>
               <td className="px-3 py-3">
                 <QuoteStatusBadge status={record.status} />
-              </td>
-              <td className="px-3 py-3" onClick={(event) => event.stopPropagation()}>
-                <EmailState record={record} onEmail={() => onEmail(record)} />
               </td>
               <td className="px-2 py-3" onClick={(event) => event.stopPropagation()}>
                 <Button
@@ -783,31 +758,6 @@ function VehicleCell({ record }: { record: QuoteRecord }) {
     </div>
   );
 }
-function EmailState({ record, onEmail }: { record: QuoteRecord; onEmail: () => void }) {
-  if (record.status === 'CANCELLED')
-    return <span className="text-xs text-muted-foreground">No disponible</span>;
-  const sent = record.email?.action === 'DOCUMENT_EMAIL_SENT';
-  return (
-    <button type="button" onClick={onEmail} className="flex items-start gap-2 text-left text-xs">
-      <Mail className={`mt-0.5 h-4 w-4 ${sent ? 'text-blue-600' : 'text-muted-foreground'}`} />
-      <span>
-        <strong className={sent ? 'text-blue-700' : 'text-foreground'}>
-          {sent
-            ? 'Reenviar'
-            : record.email?.action === 'DOCUMENT_EMAIL_FAILED'
-              ? 'Reintentar'
-              : 'Sin enviar'}
-        </strong>
-        {record.email ? (
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">
-            {relativeTime(record.email.createdAt)}
-          </span>
-        ) : null}
-      </span>
-    </button>
-  );
-}
-
 function Pagination({
   currentPage,
   pageCount,
@@ -988,7 +938,6 @@ function QuotationDetailModal({
   record,
   pending,
   onClose,
-  onEmail,
   onEdit,
   onApprove,
   onRequestApproval,
@@ -997,7 +946,6 @@ function QuotationDetailModal({
   record: QuoteRecord;
   pending: boolean;
   onClose: () => void;
-  onEmail: () => void;
   onEdit: () => void;
   onApprove: () => void;
   onRequestApproval: () => void;
@@ -1156,12 +1104,6 @@ function QuotationDetailModal({
                 Editar
               </Button>
             ) : null}
-            {record.status !== 'CANCELLED' ? (
-              <Button variant="outline" onClick={onEmail}>
-                <Mail className="h-4 w-4" />
-                {record.email?.action === 'DOCUMENT_EMAIL_SENT' ? 'Reenviar' : 'Enviar'}
-              </Button>
-            ) : null}
             {record.source === 'SALES_ORDER' && ['PENDING_SEND', 'SENT'].includes(record.status) ? (
               <Button disabled={pending} onClick={onApprove}>
                 <CheckCircle2 className="h-4 w-4" /> Aprobar
@@ -1170,10 +1112,10 @@ function QuotationDetailModal({
             {record.source === 'WORKSHOP' && ['DRAFT', 'SENT'].includes(record.status) ? (
               <Button
                 disabled={pending || Boolean(approvalBlocker)}
-                title={approvalBlocker ?? 'Solicitar aprobación al cliente.'}
+                title={approvalBlocker ?? 'Enviar la cotización a aprobación del cliente.'}
                 onClick={onRequestApproval}
               >
-                Solicitar aprobación
+                Enviar a aprobación del cliente
               </Button>
             ) : null}
             {record.source === 'WORKSHOP' && record.status === 'PENDING_APPROVAL' ? (

@@ -3,16 +3,17 @@ import {
   WorkshopAppointmentStatus,
   WorkshopQualityStatus,
   WorkshopInspectionResult,
+  WorkshopVehicleAreaCondition,
   WorkshopTicketLineType,
   WorkshopTicketPriority,
   WorkshopTicketStatus,
   WorkshopTaskStatus,
-  WorkshopBayStatus,
   WorkshopChangeOrderStatus,
   WorkshopVehicleType,
 } from '@qorvex/database';
 import {
   ArrayUnique,
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -177,13 +178,12 @@ export class CreateWorkshopReceptionDto {
   observations?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  bay?: string;
-
-  @IsOptional()
-  @IsString()
-  bayId?: string;
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(2)
+  @IsString({ each: true })
+  @MaxLength(2000, { each: true })
+  imageUrls?: string[];
 
   @IsOptional()
   @IsString()
@@ -191,27 +191,6 @@ export class CreateWorkshopReceptionDto {
 }
 
 export class UpdateWorkshopReceptionDto extends PartialType(CreateWorkshopReceptionDto) {}
-
-export class CreateWorkshopBayDto {
-  @IsString()
-  @MaxLength(30)
-  code: string;
-
-  @IsString()
-  @MaxLength(100)
-  name: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  notes?: string;
-}
-
-export class UpdateWorkshopBayDto extends PartialType(CreateWorkshopBayDto) {
-  @IsOptional()
-  @IsEnum(WorkshopBayStatus)
-  status?: WorkshopBayStatus;
-}
 
 export class SaveWorkshopQualityCheckDto {
   @IsEnum(WorkshopQualityStatus)
@@ -307,6 +286,11 @@ export class WorkshopTicketLineDto {
   @IsString()
   serviceId?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  vehicleAreaId?: string;
+
   @IsEnum(WorkshopTicketLineType)
   type: WorkshopTicketLineType;
 
@@ -323,6 +307,32 @@ export class WorkshopTicketLineDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   unitPrice: number;
+}
+
+export class WorkshopVehicleAreaFindingDto {
+  @IsString()
+  @MaxLength(80)
+  areaId: string;
+
+  @IsString()
+  @MaxLength(160)
+  areaLabel: string;
+
+  @IsIn(['front', 'back', 'left', 'right', 'top'])
+  view: string;
+
+  @IsEnum(WorkshopVehicleAreaCondition)
+  condition: WorkshopVehicleAreaCondition;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  finding?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  notes?: string;
 }
 
 export class CreateWorkshopServiceDto {
@@ -419,6 +429,13 @@ export class CreateWorkshopTicketDto {
   @ValidateNested({ each: true })
   @Type(() => WorkshopTicketLineDto)
   lines?: WorkshopTicketLineDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique((item: WorkshopVehicleAreaFindingDto) => item.areaId)
+  @ValidateNested({ each: true })
+  @Type(() => WorkshopVehicleAreaFindingDto)
+  areaFindings?: WorkshopVehicleAreaFindingDto[];
 }
 
 export class UpdateWorkshopTicketDto {
@@ -471,6 +488,13 @@ export class UpdateWorkshopTicketDto {
   @ValidateNested({ each: true })
   @Type(() => WorkshopTicketLineDto)
   lines?: WorkshopTicketLineDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique((item: WorkshopVehicleAreaFindingDto) => item.areaId)
+  @ValidateNested({ each: true })
+  @Type(() => WorkshopVehicleAreaFindingDto)
+  areaFindings?: WorkshopVehicleAreaFindingDto[];
 }
 
 export class WorkshopAuthorizationEvidenceDto {
@@ -552,6 +576,11 @@ export class CreateWorkshopTaskDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  category?: string;
 
   @IsOptional()
   @Type(() => Number)

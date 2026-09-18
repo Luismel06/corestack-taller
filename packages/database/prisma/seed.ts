@@ -218,17 +218,16 @@ async function main() {
 
   const cashier = await prisma.user.create({
     data: {
-      email: 'cajero@x.local',
-      name: 'Cajero X',
+      email: 'contador@x.local',
+      name: 'Contador Taller',
       phone: '809-555-0102',
       passwordHash,
       memberships: {
         create: {
           tenantId: allpaTenant.id,
-          role: Role.CASHIER,
-          canUsePos: true,
-          canOpenCashSession: true,
-          canCloseCashSession: true,
+          role: Role.ACCOUNTANT,
+          canViewReports: true,
+          canManageFiscalSequences: true,
           canViewCashLogs: true,
           canReprintReceipt: true,
         },
@@ -236,8 +235,8 @@ async function main() {
       employeeProfiles: {
         create: {
           tenantId: allpaTenant.id,
-          employeeCode: 'X-CAJ-001',
-          jobTitle: 'Cajero principal',
+          employeeCode: 'X-CON-001',
+          jobTitle: 'Contador',
           hireDate: new Date('2025-05-15T00:00:00.000Z'),
           documentType: DocumentType.CEDULA,
           documentNumber: '00187654321',
@@ -1072,7 +1071,7 @@ async function main() {
 
   console.log(`Seed completed for tenant ${allpaTenant.name} (${allpaTenant.id})`);
   console.log(`X admin login: admin@x.local / ${demoPassword}`);
-  console.log(`X cashier login: cajero@x.local / ${demoPassword}`);
+  console.log(`X accountant login: contador@x.local / ${demoPassword}`);
   console.log(`X reception login: ordenes@x.local / ${demoPassword}`);
   console.log(`CoreStack platform login: superadmin@corestack.local / ${demoPassword}`);
 }

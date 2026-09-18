@@ -143,7 +143,7 @@ export function PosView() {
     enabled: Boolean(session && isAdminSession(session)),
   });
   const canCreateDirectSale = Boolean(
-    session && !isAdminSession(session) && hasPermission(session, 'pos.sell'),
+    session && hasPermission(session, 'pos.sell'),
   );
   const isAdmin = isAdminSession(session);
   const productsQuery = useQuery({
@@ -165,12 +165,10 @@ export function PosView() {
   });
 
   const currentCashSession = currentSessionQuery.data;
-  const canUsePos = Boolean(session && (isAdmin || hasPermission(session, 'pos.sell')));
+  const canUsePos = Boolean(session && hasPermission(session, 'pos.sell'));
   const canOpenCashSession =
-    Boolean(session?.permissions.canOpenCashSession) && !isAdminSession(session);
-  const canCloseCashSession =
-    session?.permissions.canCloseCashSession ??
-    ['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(session?.role ?? '');
+    Boolean(session && hasPermission(session, 'cash.open'));
+  const canCloseCashSession = Boolean(session && hasPermission(session, 'cash.close'));
   const cartReadOnly = Boolean(loadedOrder);
   const readyOrders = (pendingOrdersQuery.data ?? []).filter((order) =>
     ['SENT_TO_CASHIER', 'IN_CASHIER'].includes(order.status),
@@ -278,7 +276,7 @@ export function PosView() {
   }, [amountReceived, cart, loadedOrder, paymentMethod, splitPayments]);
 
   useEffect(() => {
-    if (paymentMethod !== 'CASH' && paymentMethod !== 'MIXED' && totals.requiredPayment >= 0) {
+    if (paymentMethod === 'CARD' && totals.requiredPayment >= 0) {
       setAmountReceived(formatCurrencyInputFromNumber(totals.requiredPayment));
     }
   }, [paymentMethod, totals.requiredPayment]);
@@ -329,12 +327,13 @@ export function PosView() {
       (!requiresRnc || fiscalDocumentType === 'RNC'),
     );
   const canCompleteSale =
-    !isAdmin &&
     cart.length > 0 &&
     Boolean(currentCashSession) &&
     (Boolean(loadedOrder) || canCreateDirectSale) &&
     (paymentMethod !== 'MIXED' ||
       splitPaymentSummary(splitPayments, totals.requiredPayment).valid) &&
+    (paymentMethod !== 'TRANSFER' ||
+      Math.abs(totals.received - totals.requiredPayment) < 0.005) &&
     (!directElectronic ||
       Boolean(loadedOrder) ||
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(directRecipientEmail.trim())) &&
@@ -631,7 +630,7 @@ export function PosView() {
 
   function updateQuantity(productId: string, quantity: number) {
     if (!canCreateDirectSale || loadedOrder || completeSaleMutation.isPending) {
-      setMessage('El cajero no puede modificar una orden enviada a caja.');
+      setMessage('Una orden enviada a caja no se puede modificar durante el cobro.');
       return;
     }
 
@@ -964,7 +963,7 @@ export function PosView() {
                 {requestedOrderQuery.data.status === 'IN_CASHIER' &&
                 requestedOrderQuery.data.claimedBy?.id !== session.user.id ? (
                   <p className="text-xs text-muted-foreground">
-                    En atención por {requestedOrderQuery.data.claimedBy?.name ?? 'otro cajero'}.
+                    En atención por {requestedOrderQuery.data.claimedBy?.name ?? 'otro operador'}.
                   </p>
                 ) : null}
               </>
@@ -996,7 +995,7 @@ export function PosView() {
           isOpening={openSessionMutation.isPending}
           message={message}
           occupiedBy={
-            selectedRegisterOccupied ? (selectedOpenSession?.openedBy?.name ?? 'otro cajero') : null
+            selectedRegisterOccupied ? (selectedOpenSession?.openedBy?.name ?? 'otro usuario') : null
           }
           onRegisterChange={setSelectedRegisterId}
           onOpeningAmountChange={setOpeningAmount}
@@ -1065,17 +1064,6 @@ export function PosView() {
                     />
                   )}
                 </CardContent>
-              </Card>
-            ) : null}
-            {isAdmin ? (
-              <Card className="border-zinc-200 bg-zinc-50">
-                <CardHeader>
-                  <CardTitle>Cobro solo por cajero</CardTitle>
-                  <CardDescription>
-                    El administrador no cobra desde caja. Los tickets pendientes deben ser cobrados
-                    por un cajero con sesion abierta.
-                  </CardDescription>
-                </CardHeader>
               </Card>
             ) : null}
           </div>
@@ -1155,7 +1143,7 @@ export function PosView() {
                 ) : null}
               </div>
             ) : null}
-            {!isAdmin && cart.length ? (
+            {cart.length ? (
               <PosPaymentPanel
                 customers={activeCustomers}
                 customerId={customerId}
@@ -1519,7 +1507,7 @@ function SalesOrdersQueuePanel({
                             : 'Cobrar'}
                     </Button>
                   ) : (
-                    <span className="text-xs text-muted-foreground">Solo cajero</span>
+                    <span className="text-xs text-muted-foreground">Sin permiso de cobro</span>
                   )}
                 </div>
               </article>
@@ -1570,7 +1558,7 @@ function CashStatusHeader({
       <div className="flex items-center gap-2 px-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><ShieldCheck className="h-4 w-4" /></div>
         <div>
-          <p className="text-xs text-muted-foreground">Cajero</p>
+          <p className="text-xs text-muted-foreground">Responsable</p>
           <p className="font-semibold">{sessionName}</p>
         </div>
       </div>

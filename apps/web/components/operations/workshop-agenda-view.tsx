@@ -5,7 +5,6 @@ import {
   CalendarDays,
   CalendarClock,
   Car,
-  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -34,9 +33,7 @@ import {
   createWorkshopAppointment,
   getCustomers,
   getWorkshopAppointments,
-  getWorkshopBays,
   getWorkshopMechanics,
-  getWorkshopServices,
   getWorkshopTickets,
   getWorkshopVehicles,
   updateWorkshopAppointment,
@@ -144,24 +141,21 @@ function AppointmentDateTimeInput({
   const parts = appointmentTimeParts(value);
 
   return (
-    <div className="grid gap-2 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+    <div className="flex min-w-0 flex-wrap items-center gap-3">
       <Input
         required
         type="date"
+        className="h-11 min-w-0 basis-40 flex-1 px-3"
         aria-label="Fecha de la cita"
         value={parts.date}
-        onChange={(event) =>
-          onChange(updateAppointmentTime(value, { date: event.target.value }))
-        }
+        onChange={(event) => onChange(updateAppointmentTime(value, { date: event.target.value }))}
       />
-      <div className="grid grid-cols-[1fr_auto_1fr_1.2fr] items-center gap-1">
+      <div className="grid min-w-0 flex-1 basis-56 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_minmax(0,1.35fr)] items-center gap-2">
         <select
           aria-label="Hora"
-          className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+          className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm"
           value={parts.hour}
-          onChange={(event) =>
-            onChange(updateAppointmentTime(value, { hour: event.target.value }))
-          }
+          onChange={(event) => onChange(updateAppointmentTime(value, { hour: event.target.value }))}
         >
           {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map(
             (hour) => (
@@ -174,7 +168,7 @@ function AppointmentDateTimeInput({
         <span className="font-semibold text-slate-500">:</span>
         <select
           aria-label="Minutos"
-          className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+          className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm"
           value={parts.minute}
           onChange={(event) =>
             onChange(updateAppointmentTime(value, { minute: event.target.value }))
@@ -190,12 +184,10 @@ function AppointmentDateTimeInput({
         </select>
         <select
           aria-label="Período"
-          className="h-10 rounded-md border border-input bg-background px-2 text-sm font-semibold"
+          className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm font-semibold"
           value={parts.period}
           onChange={(event) =>
-            onChange(
-              updateAppointmentTime(value, { period: event.target.value as 'AM' | 'PM' }),
-            )
+            onChange(updateAppointmentTime(value, { period: event.target.value as 'AM' | 'PM' }))
           }
         >
           <option value="AM">a. m.</option>
@@ -211,7 +203,6 @@ const emptyForm = () => ({
   vehicleId: '',
   mechanicId: '',
   startsAt: localDateTime(),
-  estimatedMinutes: '60',
   reason: '',
   notes: '',
 });
@@ -277,17 +268,6 @@ export function WorkshopAgendaView() {
     enabled: Boolean(session && hasPermission(session, 'workorders.view')),
     refetchInterval: 20_000,
   });
-  const servicesQuery = useQuery({
-    queryKey: ['workshop-services', session?.tenantId],
-    queryFn: () => getWorkshopServices(session!.tenantId, session!.accessToken),
-    enabled: Boolean(session && hasPermission(session, 'workorders.view')),
-  });
-  const baysQuery = useQuery({
-    queryKey: ['workshop-bays', session?.tenantId],
-    queryFn: () => getWorkshopBays(session!.tenantId, session!.accessToken),
-    enabled: Boolean(session && hasPermission(session, 'workorders.view')),
-  });
-
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['workshop-appointments'] });
     await queryClient.invalidateQueries({ queryKey: ['workshop-overview'] });
@@ -413,7 +393,6 @@ export function WorkshopAgendaView() {
       vehicleId: appointment.vehicleId,
       mechanicId: appointment.mechanicId ?? '',
       startsAt: localDateTime(new Date(appointment.startsAt)),
-      estimatedMinutes: String(appointment.estimatedMinutes),
       reason: appointment.reason,
       notes: appointment.notes ?? '',
     });
@@ -427,7 +406,6 @@ export function WorkshopAgendaView() {
       vehicleId: form.vehicleId,
       mechanicId: form.mechanicId || undefined,
       startsAt: new Date(form.startsAt).toISOString(),
-      estimatedMinutes: Number(form.estimatedMinutes),
       reason: form.reason,
       notes: form.notes || undefined,
     });
@@ -452,6 +430,16 @@ export function WorkshopAgendaView() {
 
   return (
     <div className={cn('space-y-5', tabletMode && 'workshop-tablet')}>
+      {session.role === 'ORDER_TAKER' ? (
+        <div className="flex justify-end">
+          <Button asChild variant="outline" className="h-11">
+            <Link href="/workshop">
+              <Clock3 className="h-4 w-4" />
+              Historial de órdenes
+            </Link>
+          </Button>
+        </div>
+      ) : null}
       {tabletMode ? (
         <TabletWorkstation
           title="Toma de órdenes"
@@ -540,8 +528,8 @@ export function WorkshopAgendaView() {
               </div>
             </CardHeader>
             <CardContent>
-              <form className="grid gap-4 md:grid-cols-2" onSubmit={submit}>
-                <Field label="Cliente">
+              <form className="grid items-start gap-x-6 gap-y-4 md:grid-cols-2" onSubmit={submit}>
+                <Field label="Cliente" required>
                   <div className="flex gap-2">
                     <select
                       required
@@ -575,7 +563,7 @@ export function WorkshopAgendaView() {
                     ) : null}
                   </div>
                 </Field>
-                <Field label="Vehículo">
+                <Field label="Vehículo" required>
                   <div className="flex gap-2">
                     <select
                       required
@@ -609,29 +597,15 @@ export function WorkshopAgendaView() {
                     ) : null}
                   </div>
                 </Field>
-                <Field label="Fecha y hora">
+                <Field label="Fecha y hora" required>
                   <AppointmentDateTimeInput
                     value={form.startsAt}
-                    onChange={(startsAt) =>
-                      setForm((current) => ({ ...current, startsAt }))
-                    }
-                  />
-                </Field>
-                <Field label="Duración estimada (minutos)">
-                  <Input
-                    required
-                    min="15"
-                    step="15"
-                    type="number"
-                    value={form.estimatedMinutes}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, estimatedMinutes: event.target.value }))
-                    }
+                    onChange={(startsAt) => setForm((current) => ({ ...current, startsAt }))}
                   />
                 </Field>
                 <Field label="Mecánico asignado (opcional)">
                   <select
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                     value={form.mechanicId}
                     onChange={(event) =>
                       setForm((current) => ({ ...current, mechanicId: event.target.value }))
@@ -645,7 +619,8 @@ export function WorkshopAgendaView() {
                     ))}
                   </select>
                 </Field>
-                <Field label="Motivo / queja">
+                <div className="md:col-span-2">
+                <Field label="Motivo / queja" required>
                   <Input
                     required
                     maxLength={2000}
@@ -656,16 +631,7 @@ export function WorkshopAgendaView() {
                     placeholder="Ej. Ruido al frenar"
                   />
                 </Field>
-                <Field label="Notas internas">
-                  <Input
-                    maxLength={4000}
-                    value={form.notes}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, notes: event.target.value }))
-                    }
-                    placeholder="Información adicional para recepción"
-                  />
-                </Field>
+                </div>
                 <div className="md:col-span-2 flex gap-2">
                   <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
                     Cancelar
@@ -714,8 +680,6 @@ export function WorkshopAgendaView() {
             : null
         }
         mechanics={mechanicsQuery.data ?? []}
-        services={servicesQuery.data ?? []}
-        bays={baysQuery.data ?? []}
         onClose={() => setSelectedTicket(null)}
       />
       <WorkshopAppointmentDrawer
@@ -1180,15 +1144,13 @@ function AdminAppointmentRow({
     ? tickets.find((item) => item.id === appointment.convertedTicket!.id)
     : undefined;
   const primary =
-    appointment.status === 'SCHEDULED'
-      ? { label: 'Confirmar', run: () => onStatus('CONFIRMED'), icon: Check }
-      : appointment.status === 'CONFIRMED'
-        ? { label: 'Marcar llegada', run: () => onStatus('ARRIVED'), icon: Car }
-        : appointment.status === 'ARRIVED'
-          ? { label: 'Recibir / Abrir OT', run: onReceive, icon: ClipboardCheck }
-          : appointment.convertedTicket
-            ? { label: 'Abrir OT', run: () => ticket && onSelectTicket(ticket), icon: Wrench }
-            : null;
+    appointment.status === 'SCHEDULED' || appointment.status === 'CONFIRMED'
+      ? { label: 'Marcar llegada', run: () => onStatus('ARRIVED'), icon: Car }
+      : appointment.status === 'ARRIVED'
+        ? { label: 'Recibir / Abrir OT', run: onReceive, icon: ClipboardCheck }
+        : appointment.convertedTicket
+          ? { label: 'Abrir OT', run: () => ticket && onSelectTicket(ticket), icon: Wrench }
+          : null;
   const PrimaryIcon = primary?.icon;
   const editable = ['SCHEDULED', 'CONFIRMED', 'ARRIVED'].includes(appointment.status);
   return (
@@ -1197,19 +1159,18 @@ function AdminAppointmentRow({
         <span className="block whitespace-nowrap text-lg font-extrabold text-slate-950">
           {appointmentTime(appointment.startsAt)}
         </span>
-        <span className="text-xs text-slate-400">{appointment.estimatedMinutes} min</span>
       </button>
       <div className="min-w-0">
-        <p className="truncate font-extrabold tracking-wide text-slate-950">
+        <p className="truncate text-lg font-black tracking-wide text-slate-950">
           {appointment.vehicle.licensePlate ?? 'SIN PLACA'}
         </p>
-        <p className="truncate text-sm text-slate-500">
+        <p className="truncate text-sm font-semibold text-slate-600">
           {appointment.vehicle.make} {appointment.vehicle.model}
           {appointment.vehicle.year ? ` · ${appointment.vehicle.year}` : ''}
         </p>
       </div>
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-800">{appointment.customer.name}</p>
+        <p className="truncate text-base font-bold text-slate-900">{appointment.customer.name}</p>
         <p className="truncate text-xs text-slate-400">
           {appointment.customer.phone ?? 'Sin teléfono'}
         </p>
@@ -1610,19 +1571,17 @@ function TabletAppointmentCard({
   onOpenTicket: (ticketId: string) => void;
 }) {
   const action =
-    appointment.status === 'SCHEDULED'
-      ? { label: 'Confirmar', icon: Check, run: () => onStatus('CONFIRMED') }
-      : appointment.status === 'CONFIRMED'
-        ? { label: 'Marcar llegada', icon: Car, run: () => onStatus('ARRIVED') }
-        : appointment.status === 'ARRIVED'
-          ? { label: 'Recibir vehículo', icon: ClipboardCheck, run: onReceive }
-          : appointment.convertedTicket
-            ? {
-                label: 'Abrir OT',
-                icon: Wrench,
-                run: () => onOpenTicket(appointment.convertedTicket!.id),
-              }
-            : null;
+    appointment.status === 'SCHEDULED' || appointment.status === 'CONFIRMED'
+      ? { label: 'Marcar llegada', icon: Car, run: () => onStatus('ARRIVED') }
+      : appointment.status === 'ARRIVED'
+        ? { label: 'Recibir vehículo', icon: ClipboardCheck, run: onReceive }
+        : appointment.convertedTicket
+          ? {
+              label: 'Abrir OT',
+              icon: Wrench,
+              run: () => onOpenTicket(appointment.convertedTicket!.id),
+            }
+          : null;
   const ActionIcon = action?.icon;
   return (
     <article
@@ -1649,23 +1608,20 @@ function TabletAppointmentCard({
             hour12: true,
           })}
         </p>
-        <p className="mt-1 text-xs font-medium text-slate-400">
-          {appointment.estimatedMinutes} min
-        </p>
       </div>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-lg font-extrabold tracking-wide text-slate-950">
+          <p className="text-xl font-black tracking-wide text-slate-950">
             {appointment.vehicle.licensePlate ?? 'SIN PLACA'}
           </p>
           <AppointmentStatusBadge status={appointment.status} />
         </div>
-        <p className="truncate text-sm font-medium text-slate-600">
+        <p className="truncate text-base font-bold text-slate-700">
           {appointment.vehicle.make} {appointment.vehicle.model}
           {appointment.vehicle.year ? ` · ${appointment.vehicle.year}` : ''}
         </p>
         <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5 font-semibold text-slate-700">
             <UserRound className="h-3.5 w-3.5" />
             {appointment.customer.name}
           </span>
@@ -1836,13 +1792,7 @@ function WorkshopAppointmentDrawer({
           <section className="rounded-2xl border bg-white p-5 shadow-sm">
             <h3 className="font-bold text-slate-950">Acciones rápidas</h3>
             <div className="mt-4 grid gap-3">
-              {appointment.status === 'SCHEDULED' ? (
-                <Button className="h-12" disabled={pending} onClick={() => onStatus('CONFIRMED')}>
-                  <Check className="h-5 w-5" />
-                  Confirmar cita
-                </Button>
-              ) : null}
-              {appointment.status === 'CONFIRMED' ? (
+              {['SCHEDULED', 'CONFIRMED'].includes(appointment.status) ? (
                 <Button className="h-12" disabled={pending} onClick={() => onStatus('ARRIVED')}>
                   <Car className="h-5 w-5" />
                   Marcar llegada
@@ -2000,10 +1950,21 @@ function SummaryLine({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  required = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+}) {
   return (
     <label className="grid gap-1.5 text-sm font-medium">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {required ? <span className="ml-1 text-red-500">*</span> : null}
+      </Label>
       {children}
     </label>
   );

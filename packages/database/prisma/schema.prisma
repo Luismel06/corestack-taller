@@ -1,6 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/client"
+  provider        = "prisma-client-js"
+  output          = "../generated/client"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -178,6 +179,12 @@ enum WorkshopInspectionResult {
   NOT_INSPECTED
 }
 
+enum WorkshopVehicleAreaCondition {
+  OK
+  ATTENTION
+  REPAIR
+}
+
 enum WorkshopTicketLineType {
   LABOR
   PART
@@ -219,13 +226,6 @@ enum WorkshopTaskTimeEvent {
   RESUME
   COMPLETE
   CANCEL
-}
-
-enum WorkshopBayStatus {
-  AVAILABLE
-  OCCUPIED
-  BLOCKED
-  MAINTENANCE
 }
 
 enum ReturnRequestStatus {
@@ -516,66 +516,66 @@ enum Currency {
 }
 
 model Tenant {
-  id                         String                      @id @default(cuid())
-  name                       String
-  commercialName             String?
-  legalName                  String?
-  slug                       String                      @unique
-  rnc                        String?
-  email                      String?
-  phone                      String?
-  address                    String?
-  status                     TenantStatus                @default(ACTIVE)
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
-  branding                   CompanyBranding?
-  memberships                Membership[]
-  customers                  Customer[]
-  categories                 ProductCategory[]
-  products                   Product[]
-  inventoryMovements         InventoryMovement[]
-  warehouseStocks            WarehouseStock[]
-  warehouseMovements         WarehouseMovement[]
-  invoices                   Invoice[]
-  payments                   Payment[]
-  electronicDocuments        ElectronicDocument[]
-  auditLogs                  AuditLog[]
-  employeeProfiles           EmployeeProfile[]
-  cashRegisters              CashRegister[]
-  cashSessions               CashSession[]
-  cashMovements              CashMovement[]
-  employeeActivityLogs       EmployeeActivityLog[]
-  salesOrders                SalesOrder[]
-  returnRequests             ReturnRequest[]
-  fiscalSequences            FiscalSequence[]
-  importBatches              ImportBatch[]
-  suppliers                  Supplier[]
-  supplierProducts           SupplierProduct[]
-  purchaseOrders             PurchaseOrder[]
-  purchaseOrderItems         PurchaseOrderItem[]
-  purchaseOrderEvents        PurchaseOrderEvent[]
-  supplierInvoices           SupplierInvoice[]
-  supplierInvoiceItems       SupplierInvoiceItem[]
-  supplierInvoiceAttachments SupplierInvoiceAttachment[]
-  supplierPayments           SupplierPayment[]
-  goodsReceipts              GoodsReceipt[]
-  goodsReceiptItems          GoodsReceiptItem[]
-  creditSaleApprovals        CreditSaleApproval[]
-  mobileOcrCaptureSessions   MobileOcrCaptureSession[]
-  vehicles                   WorkshopVehicle[]
-  workshopTickets            WorkshopTicket[]
-  workshopServices           WorkshopService[]
-  workshopAppointments       WorkshopAppointment[]
-  workshopReceptions         WorkshopReception[]
-  workshopQualityChecks      WorkshopQualityCheck[]
-  workshopDeliveries         WorkshopDelivery[]
-  workshopInspections        WorkshopInspection[]
-  workshopInspectionItems    WorkshopInspectionItem[]
-  workshopTaskTimeEntries    WorkshopTaskTimeEntry[]
-  workshopQuoteVersions      WorkshopQuoteVersion[]
-  workshopBays               WorkshopBay[]
-  workshopChangeOrders       WorkshopChangeOrder[]
-  workshopTicketStatusEvents WorkshopTicketStatusEvent[]
+  id                          String                       @id @default(cuid())
+  name                        String
+  commercialName              String?
+  legalName                   String?
+  slug                        String                       @unique
+  rnc                         String?
+  email                       String?
+  phone                       String?
+  address                     String?
+  status                      TenantStatus                 @default(ACTIVE)
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  branding                    CompanyBranding?
+  memberships                 Membership[]
+  customers                   Customer[]
+  categories                  ProductCategory[]
+  products                    Product[]
+  inventoryMovements          InventoryMovement[]
+  warehouseStocks             WarehouseStock[]
+  warehouseMovements          WarehouseMovement[]
+  invoices                    Invoice[]
+  payments                    Payment[]
+  electronicDocuments         ElectronicDocument[]
+  auditLogs                   AuditLog[]
+  employeeProfiles            EmployeeProfile[]
+  cashRegisters               CashRegister[]
+  cashSessions                CashSession[]
+  cashMovements               CashMovement[]
+  employeeActivityLogs        EmployeeActivityLog[]
+  salesOrders                 SalesOrder[]
+  returnRequests              ReturnRequest[]
+  fiscalSequences             FiscalSequence[]
+  importBatches               ImportBatch[]
+  suppliers                   Supplier[]
+  supplierProducts            SupplierProduct[]
+  purchaseOrders              PurchaseOrder[]
+  purchaseOrderItems          PurchaseOrderItem[]
+  purchaseOrderEvents         PurchaseOrderEvent[]
+  supplierInvoices            SupplierInvoice[]
+  supplierInvoiceItems        SupplierInvoiceItem[]
+  supplierInvoiceAttachments  SupplierInvoiceAttachment[]
+  supplierPayments            SupplierPayment[]
+  goodsReceipts               GoodsReceipt[]
+  goodsReceiptItems           GoodsReceiptItem[]
+  creditSaleApprovals         CreditSaleApproval[]
+  mobileOcrCaptureSessions    MobileOcrCaptureSession[]
+  vehicles                    WorkshopVehicle[]
+  workshopTickets             WorkshopTicket[]
+  workshopServices            WorkshopService[]
+  workshopAppointments        WorkshopAppointment[]
+  workshopReceptions          WorkshopReception[]
+  workshopQualityChecks       WorkshopQualityCheck[]
+  workshopDeliveries          WorkshopDelivery[]
+  workshopInspections         WorkshopInspection[]
+  workshopInspectionItems     WorkshopInspectionItem[]
+  workshopVehicleAreaFindings WorkshopVehicleAreaFinding[]
+  workshopTaskTimeEntries     WorkshopTaskTimeEntry[]
+  workshopQuoteVersions       WorkshopQuoteVersion[]
+  workshopChangeOrders        WorkshopChangeOrder[]
+  workshopTicketStatusEvents  WorkshopTicketStatusEvent[]
 
   @@index([status])
   @@index([createdAt])
@@ -1084,47 +1084,48 @@ model WorkshopVehicle {
 }
 
 model WorkshopTicket {
-  id                  String                      @id @default(cuid())
+  id                  String                       @id @default(cuid())
   tenantId            String
   customerId          String
   vehicleId           String
   ticketNumber        String
-  status              WorkshopTicketStatus        @default(RECEIVED)
-  priority            WorkshopTicketPriority      @default(NORMAL)
-  approvalStatus      WorkshopApprovalStatus      @default(NOT_REQUESTED)
+  status              WorkshopTicketStatus         @default(RECEIVED)
+  priority            WorkshopTicketPriority       @default(NORMAL)
+  approvalStatus      WorkshopApprovalStatus       @default(NOT_REQUESTED)
   complaint           String
   diagnosis           String?
   internalNotes       String?
   customerNotes       String?
   approvalNote        String?
-  estimatedTotal      Decimal                     @default(0) @db.Decimal(12, 2)
-  laborTotal          Decimal                     @default(0) @db.Decimal(12, 2)
-  partsTotal          Decimal                     @default(0) @db.Decimal(12, 2)
-  total               Decimal                     @default(0) @db.Decimal(12, 2)
-  openedAt            DateTime                    @default(now())
+  estimatedTotal      Decimal                      @default(0) @db.Decimal(12, 2)
+  laborTotal          Decimal                      @default(0) @db.Decimal(12, 2)
+  partsTotal          Decimal                      @default(0) @db.Decimal(12, 2)
+  total               Decimal                      @default(0) @db.Decimal(12, 2)
+  openedAt            DateTime                     @default(now())
   promisedAt          DateTime?
   completedAt         DateTime?
   deliveredAt         DateTime?
   cancelledAt         DateTime?
   approvalRequestedAt DateTime?
   approvedAt          DateTime?
-  salesOrderId        String?                     @unique
+  salesOrderId        String?                      @unique
   createdById         String
-  createdAt           DateTime                    @default(now())
-  updatedAt           DateTime                    @updatedAt
-  tenant              Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer            Customer                    @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  vehicle             WorkshopVehicle             @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
-  createdBy           User                        @relation("WorkshopTicketCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  salesOrder          SalesOrder?                 @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  tenant              Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer                     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle             WorkshopVehicle              @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  createdBy           User                         @relation("WorkshopTicketCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  salesOrder          SalesOrder?                  @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
   assignments         WorkshopTicketAssignment[]
   lines               WorkshopTicketLine[]
   tasks               WorkshopTask[]
-  appointment         WorkshopAppointment?        @relation("WorkshopAppointmentTicket")
+  appointment         WorkshopAppointment?         @relation("WorkshopAppointmentTicket")
   reception           WorkshopReception?
   qualityCheck        WorkshopQualityCheck?
   delivery            WorkshopDelivery?
   inspection          WorkshopInspection?
+  areaFindings        WorkshopVehicleAreaFinding[]
   quoteVersions       WorkshopQuoteVersion[]
   changeOrders        WorkshopChangeOrder[]
   statusEvents        WorkshopTicketStatusEvent[]
@@ -1315,8 +1316,7 @@ model WorkshopReception {
   interiorCondition String?
   warningLights     String?
   observations      String?
-  bay               String?
-  bayId             String?
+  imageUrls         String[]         @default([])
   initialMechanicId String?
   createdById       String
   receivedAt        DateTime         @default(now())
@@ -1324,30 +1324,12 @@ model WorkshopReception {
   updatedAt         DateTime         @updatedAt
   tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   ticket            WorkshopTicket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  bayRef            WorkshopBay?     @relation(fields: [bayId], references: [id], onDelete: SetNull)
   initialMechanic   EmployeeProfile? @relation("WorkshopReceptionInitialMechanic", fields: [initialMechanicId], references: [id], onDelete: SetNull)
   createdBy         User             @relation("WorkshopReceptionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([tenantId, receivedAt])
-  @@index([bayId])
   @@index([initialMechanicId])
   @@index([createdById])
-}
-
-model WorkshopBay {
-  id         String              @id @default(cuid())
-  tenantId   String
-  code       String
-  name       String
-  status     WorkshopBayStatus   @default(AVAILABLE)
-  notes      String?
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
-  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  receptions WorkshopReception[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId, status])
 }
 
 model WorkshopQualityCheck {
@@ -1475,10 +1457,12 @@ model WorkshopTicketLine {
   ticketId           String
   productId          String?
   serviceId          String?
+  vehicleAreaId      String?
   type               WorkshopTicketLineType
   description        String
   quantity           Decimal                @default(1) @db.Decimal(12, 2)
   unitPrice          Decimal                @default(0) @db.Decimal(12, 2)
+  taxRate            Decimal                @default(0.18) @db.Decimal(5, 4)
   total              Decimal                @default(0) @db.Decimal(12, 2)
   reservedQuantity   Float                  @default(0)
   consumedQuantity   Decimal                @default(0) @db.Decimal(12, 2)
@@ -1500,6 +1484,27 @@ model WorkshopTicketLine {
   @@index([ticketId])
   @@index([productId])
   @@index([serviceId])
+  @@index([ticketId, vehicleAreaId])
+}
+
+model WorkshopVehicleAreaFinding {
+  id        String                       @id @default(cuid())
+  tenantId  String
+  ticketId  String
+  areaId    String
+  areaLabel String
+  view      String
+  condition WorkshopVehicleAreaCondition
+  finding   String?
+  notes     String?
+  createdAt DateTime                     @default(now())
+  updatedAt DateTime                     @updatedAt
+  tenant    Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket    WorkshopTicket               @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, areaId])
+  @@index([tenantId, condition])
+  @@index([ticketId])
 }
 
 model WorkshopTask {
@@ -1508,6 +1513,7 @@ model WorkshopTask {
   employeeId       String?
   kind             WorkshopTaskKind        @default(LEGACY)
   ticketLineId     String?
+  category         String?
   title            String
   description      String?
   status           WorkshopTaskStatus      @default(PENDING)
@@ -1524,6 +1530,7 @@ model WorkshopTask {
   timeEntries      WorkshopTaskTimeEntry[]
 
   @@index([ticketId, status])
+  @@index([ticketId, category])
   @@index([employeeId, status])
   @@index([ticketLineId, ticketId])
 }
@@ -1604,10 +1611,12 @@ model WorkshopChangeOrderLine {
   changeOrderId String
   productId     String?
   serviceId     String?
+  vehicleAreaId String?
   type          WorkshopTicketLineType
   description   String
   quantity      Decimal                @default(1) @db.Decimal(12, 2)
   unitPrice     Decimal                @default(0) @db.Decimal(12, 2)
+  taxRate       Decimal                @default(0.18) @db.Decimal(5, 4)
   total         Decimal                @default(0) @db.Decimal(12, 2)
   createdAt     DateTime               @default(now())
   changeOrder   WorkshopChangeOrder    @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
@@ -1617,6 +1626,7 @@ model WorkshopChangeOrderLine {
   @@index([changeOrderId])
   @@index([productId])
   @@index([serviceId])
+  @@index([changeOrderId, vehicleAreaId])
 }
 
 model WorkshopTicketStatusEvent {

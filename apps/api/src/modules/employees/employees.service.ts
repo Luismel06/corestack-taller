@@ -41,13 +41,17 @@ const permissionKeys = [
   'canReprintReceipt',
   'canTakeOrders',
 ] as const;
-const tenantAssignableRoles: Role[] = [Role.ADMIN, Role.CASHIER, Role.ORDER_TAKER, Role.MECHANIC];
+const tenantAssignableRoles: Role[] = [
+  Role.ADMIN,
+  Role.ORDER_TAKER,
+  Role.ACCOUNTANT,
+  Role.MECHANIC,
+];
 // Los roles anteriores permanecen contados mientras se migran, aunque ya no puedan asignarse.
 const tenantCountedRoles: Role[] = [
   Role.ADMIN,
   Role.CASHIER,
   Role.ORDER_TAKER,
-  Role.MECHANIC,
   Role.MANAGER,
   Role.SERVICE_ADVISOR,
   Role.RECEPTIONIST,
@@ -62,8 +66,18 @@ export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async userLimit(tenantId: string) {
-    const used = await this.activeUserCount(this.prisma, tenantId);
-    return { limit: maxTenantUsers, used, available: Math.max(0, maxTenantUsers - used) };
+    const [used, mechanics] = await Promise.all([
+      this.activeUserCount(this.prisma, tenantId),
+      this.prisma.membership.count({
+        where: { tenantId, status: MembershipStatus.ACTIVE, role: Role.MECHANIC },
+      }),
+    ]);
+    return {
+      limit: maxTenantUsers,
+      used,
+      available: Math.max(0, maxTenantUsers - used),
+      mechanics,
+    };
   }
 
   private activeUserCount(client: Pick<Prisma.TransactionClient, 'membership'>, tenantId: string) {
@@ -75,7 +89,7 @@ export class EmployeesService {
   private async ensureUserSlot(tx: Prisma.TransactionClient, tenantId: string) {
     if ((await this.activeUserCount(tx, tenantId)) >= maxTenantUsers)
       throw new BadRequestException(
-        `Esta empresa admite un máximo de ${maxTenantUsers} usuarios activos. Desactiva uno antes de crear o reactivar otro.`,
+        `Esta empresa admite un máximo de ${maxTenantUsers} usuarios administrativos activos. Los mecánicos no consumen cupos.`,
       );
   }
 
@@ -130,7 +144,8 @@ export class EmployeesService {
       await tx.$queryRaw`SELECT "id" FROM "Tenant" WHERE "id" = ${tenantId} FOR UPDATE`;
       await this.requireFreshEmployeeManagement(tx, tenantId, actor.id);
       const profileStatus = dto.status ?? EmployeeStatus.ACTIVE;
-      if (profileStatus === EmployeeStatus.ACTIVE) await this.ensureUserSlot(tx, tenantId);
+      if (profileStatus === EmployeeStatus.ACTIVE && dto.role !== Role.MECHANIC)
+        await this.ensureUserSlot(tx, tenantId);
 
       const mapUserStatus = (status: EmployeeStatus | undefined) =>
         status === EmployeeStatus.BLOCKED
@@ -277,8 +292,14 @@ export class EmployeesService {
       }
 
       const nextRole = dto.role ?? membership.role;
-      if (dto.status === EmployeeStatus.ACTIVE && membership.status !== MembershipStatus.ACTIVE)
-        await this.ensureUserSlot(tx, tenantId);
+      const currentlyConsumesSlot =
+        membership.status === MembershipStatus.ACTIVE &&
+        tenantCountedRoles.includes(membership.role);
+      const willBeActive = dto.status
+        ? dto.status === EmployeeStatus.ACTIVE
+        : membership.status === MembershipStatus.ACTIVE;
+      const willConsumeSlot = willBeActive && tenantCountedRoles.includes(nextRole);
+      if (willConsumeSlot && !currentlyConsumesSlot) await this.ensureUserSlot(tx, tenantId);
       this.validateOverrides(dto.permissionOverrides, nextRole);
       if (
         membership.role === Role.ADMIN &&
@@ -546,8 +567,8 @@ export class EmployeesService {
     if (role === Role.ADMIN) {
       return {
         ...data,
-        canUsePos: false,
-        canOpenCashSession: false,
+        canUsePos: true,
+        canOpenCashSession: true,
         canTakeOrders: true,
       };
     }
@@ -621,8 +642,6 @@ export class EmployeesService {
     const overrides = value as Record<string, boolean>;
     if (overrides['employees.manage'] && role !== Role.ADMIN)
       throw new BadRequestException('Solo un administrador puede administrar usuarios y accesos.');
-    if (role === Role.ADMIN && (overrides['pos.sell'] || overrides['cash.open']))
-      throw new BadRequestException('El administrador supervisa; asigna un cajero para cobrar.');
   }
 
   private async requireFreshEmployeeManagement(

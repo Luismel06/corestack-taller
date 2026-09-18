@@ -277,14 +277,18 @@ export function PosPaymentPanel({
             type="text"
             inputMode="decimal"
             value={amountReceived}
-            disabled
+            disabled={paymentMethod === 'CARD'}
             onChange={(event) => onAmountReceivedChange(sanitizeCurrencyInput(event.target.value))}
             onBlur={(event) => onAmountReceivedChange(formatCurrencyInput(event.target.value))}
             onFocus={(event) => event.currentTarget.select()}
             placeholder={totals.requiredPayment ? formatCurrencyInputFromNumber(totals.requiredPayment) : '0.00'}
             className="h-14 text-2xl font-semibold"
           />
-          <p className="text-xs text-muted-foreground">Tarjeta y transferencia se registran por el monto exacto requerido.</p>
+          <p className="text-xs text-muted-foreground">
+            {paymentMethod === 'TRANSFER'
+              ? 'Digita el monto transferido. Debe coincidir con el monto requerido.'
+              : 'La tarjeta se registra por el monto exacto requerido.'}
+          </p>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   EmployeeStatus,
   InventoryMovementType,
@@ -23,7 +24,6 @@ import {
   WorkshopTicketStatus,
   WorkshopTaskStatus,
   WorkshopTaskTimeEvent,
-  WorkshopBayStatus,
   WorkshopChangeOrderStatus,
 } from '@qorvex/database';
 import { AuditService } from '../audit/audit.service';
@@ -32,7 +32,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { effectivePermissions } from '@qorvex/permissions';
 import {
   CreateWorkshopTicketDto,
-  CreateWorkshopBayDto,
   CreateWorkshopChangeOrderDto,
   CreateWorkshopTaskDto,
   CreateWorkshopServiceDto,
@@ -51,7 +50,6 @@ import {
   CreateWorkshopDeliveryDto,
   SaveWorkshopInspectionDto,
   UpdateWorkshopVehicleDto,
-  UpdateWorkshopBayDto,
   WorkshopTicketLineDto,
   WorkshopAuthorizationEvidenceDto,
   WorkshopPartMovementDto,
@@ -63,6 +61,7 @@ const ticketInclude = {
   warranties: { include: { claims: true } },
   customer: { select: { id: true, name: true, phone: true, email: true } },
   vehicle: true,
+  areaFindings: { orderBy: { createdAt: 'asc' as const } },
   assignments: {
     include: {
       employee: {
@@ -106,7 +105,6 @@ const ticketInclude = {
   },
   reception: {
     include: {
-      bayRef: true,
       initialMechanic: {
         include: { user: { select: { id: true, name: true, email: true, phone: true } } },
       },
@@ -157,11 +155,22 @@ const changeOrderInclude = {
   respondedBy: { select: { id: true, name: true } },
 } satisfies Prisma.WorkshopChangeOrderInclude;
 
+const maxReceptionImageSize = 5 * 1024 * 1024;
+const receptionImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+type UploadedReceptionImage = {
+  originalname: string;
+  mimetype?: string;
+  buffer: Buffer;
+  size: number;
+};
+
 @Injectable()
 export class WorkshopService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
 
   async overview(tenantId: string) {
@@ -171,6 +180,7 @@ export class WorkshopService {
       this.prisma.workshopTicket.count({ where: { tenantId, status: 'AWAITING_APPROVAL' } }),
       this.prisma.workshopTicket.count({ where: { tenantId, status: 'READY_FOR_DELIVERY' } }),
       this.prisma.workshopTicket.findMany({
+        relationLoadStrategy: 'join',
         where: { tenantId, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
         include: ticketInclude,
         orderBy: [{ priority: 'desc' }, { openedAt: 'asc' }],
@@ -181,90 +191,63 @@ export class WorkshopService {
     return { received, inProgress, awaitingApproval, readyForDelivery, today };
   }
 
-  findBays(tenantId: string) {
-    return this.prisma.workshopBay.findMany({
-      where: { tenantId },
-      orderBy: { code: 'asc' },
-    });
-  }
-
-  async createBay(tenantId: string, userId: string, dto: CreateWorkshopBayDto) {
-    const code = dto.code.trim().toUpperCase();
-    try {
-      const bay = await this.prisma.workshopBay.create({
-        data: { tenantId, code, name: dto.name.trim(), notes: this.cleanOptional(dto.notes) },
-      });
-      await this.audit.log({
-        tenantId,
-        userId,
-        action: 'WORKSHOP_BAY_CREATED',
-        entity: 'WorkshopBay',
-        entityId: bay.id,
-        metadata: { code: bay.code, name: bay.name },
-      });
-      return bay;
-    } catch (error) {
-      if (this.isUniqueConflict(error)) {
-        throw new ConflictException('Ya existe una bahía con este código.');
-      }
-      throw error;
+  async uploadReceptionImages(
+    tenantId: string,
+    userId: string,
+    files: UploadedReceptionImage[] = [],
+  ) {
+    if (!files.length || files.length > 2) {
+      throw new BadRequestException('Selecciona entre una y dos imágenes.');
     }
-  }
+    const supabaseUrl = this.config.get<string>('SUPABASE_URL')?.replace(/\/+$/, '');
+    const supabaseKey =
+      this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY') ??
+      this.config.get<string>('SUPABASE_SECRET_KEY');
+    const bucket = this.config.get<string>('SUPABASE_PRODUCT_IMAGE_BUCKET') || 'product-images';
+    if (!supabaseUrl || !supabaseKey) {
+      throw new BadRequestException('El almacenamiento de imágenes no está configurado.');
+    }
+    await ensureReceptionImageBucket(supabaseUrl, supabaseKey, bucket);
 
-  async updateBay(tenantId: string, userId: string, id: string, dto: UpdateWorkshopBayDto) {
-    const result = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "WorkshopBay" WHERE "id" = ${id} AND "tenantId" = ${tenantId} FOR UPDATE`;
-      const bay = await tx.workshopBay.findFirst({ where: { tenantId, id } });
-      if (!bay) throw new NotFoundException('Bahía no encontrada.');
-      if (dto.status === WorkshopBayStatus.OCCUPIED && bay.status !== WorkshopBayStatus.OCCUPIED) {
-        throw new BadRequestException('Asigna una orden desde recepción para ocupar la bahía.');
+    const urls: string[] = [];
+    for (const file of files) {
+      if (!file.buffer?.length || !file.mimetype || !receptionImageTypes.has(file.mimetype)) {
+        throw new BadRequestException('Las evidencias deben ser imágenes JPG, PNG o WEBP.');
       }
-      if (
-        dto.status &&
-        dto.status !== WorkshopBayStatus.OCCUPIED &&
-        bay.status === WorkshopBayStatus.OCCUPIED
-      ) {
-        const activeReception = await tx.workshopReception.findFirst({
-          where: { bayId: id, ticket: { status: { notIn: ['DELIVERED', 'CANCELLED'] } } },
-          select: { id: true },
-        });
-        if (activeReception) {
-          throw new BadRequestException(
-            'No puedes cambiar el estado de una bahía ocupada por una orden activa.',
-          );
-        }
+      if (file.size > maxReceptionImageSize) {
+        throw new BadRequestException('Cada imagen debe pesar 5 MB o menos.');
       }
-      try {
-        const updated = await tx.workshopBay.update({
-          where: { id },
-          data: {
-            code: dto.code === undefined ? undefined : dto.code.trim().toUpperCase(),
-            name: dto.name?.trim(),
-            notes: dto.notes === undefined ? undefined : this.cleanOptional(dto.notes),
-            status: dto.status,
+      const extension =
+        file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+      const objectPath = `${tenantId}/workshop-receptions/${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
+      const response = await fetch(
+        `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${objectPath.split('/').map(encodeURIComponent).join('/')}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${supabaseKey}`,
+            apikey: supabaseKey,
+            'Content-Type': file.mimetype,
+            'x-upsert': 'false',
           },
-        });
-        return { previousStatus: bay.status, updated };
-      } catch (error) {
-        if (this.isUniqueConflict(error)) {
-          throw new ConflictException('Ya existe una bahía con este código.');
-        }
-        throw error;
-      }
-    });
+          body: new Blob([new Uint8Array(file.buffer)], { type: file.mimetype }),
+        },
+      );
+      if (!response.ok) throw new BadRequestException('No se pudo guardar una de las imágenes.');
+      urls.push(
+        `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${objectPath.split('/').map(encodeURIComponent).join('/')}`,
+      );
+    }
+
     await this.audit.log({
       tenantId,
       userId,
-      action: 'WORKSHOP_BAY_UPDATED',
-      entity: 'WorkshopBay',
-      entityId: id,
-      metadata: {
-        fields: Object.keys(dto),
-        previousStatus: result.previousStatus,
-        status: result.updated.status,
-      },
+      action: 'WORKSHOP_RECEPTION_IMAGES_UPLOADED',
+      entity: 'WorkshopReceptionImage',
+      entityId: tenantId,
+      metadata: { count: urls.length },
     });
-    return result.updated;
+    return { imageUrls: urls };
   }
 
   findVehicles(tenantId: string, customerId?: string) {
@@ -277,6 +260,7 @@ export class WorkshopService {
 
   async vehicleHistory(tenantId: string, id: string) {
     const vehicle = await this.prisma.workshopVehicle.findFirst({
+      relationLoadStrategy: 'join',
       where: { id, tenantId },
       include: {
         customer: { select: { id: true, name: true, phone: true, email: true } },
@@ -368,6 +352,7 @@ export class WorkshopService {
   ) {
     const startsAt = this.appointmentDateRange(from, to);
     return this.prisma.workshopAppointment.findMany({
+      relationLoadStrategy: 'join',
       where: { tenantId, ...(status ? { status } : {}), ...(startsAt ? { startsAt } : {}) },
       include: appointmentInclude,
       orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }],
@@ -556,9 +541,6 @@ export class WorkshopService {
     this.ensureReceptionMileage(ticket.vehicle.mileage, dto.mileage);
 
     const reception = await this.prisma.$transaction(async (tx) => {
-      const assignedBay = dto.bayId
-        ? await this.reserveBay(tx, tenantId, ticketId, dto.bayId)
-        : null;
       const created = await tx.workshopReception.create({
         data: {
           tenantId,
@@ -571,13 +553,11 @@ export class WorkshopService {
           interiorCondition: this.cleanOptional(dto.interiorCondition),
           warningLights: this.cleanOptional(dto.warningLights),
           observations: this.cleanOptional(dto.observations),
-          bay: assignedBay?.code ?? this.cleanOptional(dto.bay),
-          bayId: assignedBay?.id,
+          imageUrls: dto.imageUrls ?? [],
           initialMechanicId: dto.initialMechanicId,
           createdById: userId,
         },
         include: {
-          bayRef: true,
           initialMechanic: { include: { user: { select: { id: true, name: true } } } },
           createdBy: { select: { id: true, name: true } },
         },
@@ -604,7 +584,7 @@ export class WorkshopService {
       action: 'WORKSHOP_RECEPTION_CREATED',
       entity: 'WorkshopReception',
       entityId: reception.id,
-      metadata: { ticketId, mileage: dto.mileage, bay: reception.bay },
+      metadata: { ticketId, mileage: dto.mileage, imageCount: reception.imageUrls.length },
     });
     return reception;
   }
@@ -626,9 +606,6 @@ export class WorkshopService {
     if (dto.mileage !== undefined) this.ensureReceptionMileage(ticket.vehicle.mileage, dto.mileage);
 
     const reception = await this.prisma.$transaction(async (tx) => {
-      const assignedBay = dto.bayId
-        ? await this.reserveBay(tx, tenantId, ticketId, dto.bayId, ticket.reception?.bayId)
-        : null;
       const updated = await tx.workshopReception.update({
         where: { ticketId },
         data: {
@@ -649,17 +626,10 @@ export class WorkshopService {
             dto.warningLights === undefined ? undefined : this.cleanOptional(dto.warningLights),
           observations:
             dto.observations === undefined ? undefined : this.cleanOptional(dto.observations),
-          bay:
-            dto.bayId === undefined
-              ? dto.bay === undefined
-                ? undefined
-                : this.cleanOptional(dto.bay)
-              : assignedBay?.code,
-          bayId: dto.bayId === undefined ? undefined : assignedBay?.id,
+          imageUrls: dto.imageUrls,
           initialMechanicId: dto.initialMechanicId,
         },
         include: {
-          bayRef: true,
           initialMechanic: { include: { user: { select: { id: true, name: true } } } },
           createdBy: { select: { id: true, name: true } },
         },
@@ -680,9 +650,6 @@ export class WorkshopService {
         await tx.workshopTicketAssignment.create({
           data: { ticketId, employeeId: dto.initialMechanicId },
         });
-      }
-      if (assignedBay && ticket.reception?.bayId && ticket.reception.bayId !== assignedBay.id) {
-        await this.releaseBay(tx, ticket.reception.bayId);
       }
       return updated;
     });
@@ -851,9 +818,6 @@ export class WorkshopService {
           where: { id: ticket.vehicleId },
           data: { mileage: dto.mileageOut },
         });
-      }
-      if (ticket.reception?.bayId) {
-        await this.releaseBay(tx, ticket.reception.bayId);
       }
       return created;
     });
@@ -1098,6 +1062,7 @@ export class WorkshopService {
     if (isMechanic && !employee) return [];
 
     return this.prisma.workshopTicket.findMany({
+      relationLoadStrategy: 'join',
       where: {
         tenantId,
         ...(status ? { status } : {}),
@@ -1123,6 +1088,12 @@ export class WorkshopService {
     }
     await this.ensureMechanics(tenantId, dto.mechanicIds ?? []);
     const lines = await this.resolveLineCatalog(tenantId, dto.lines ?? []);
+    const validAreaIds = new Set((dto.areaFindings ?? []).map((finding) => finding.areaId));
+    if (lines.some((line) => line.vehicleAreaId && !validAreaIds.has(line.vehicleAreaId))) {
+      throw new BadRequestException(
+        'Una línea del presupuesto está vinculada a un área del vehículo inexistente.',
+      );
+    }
     const totals = this.calculateTotals(lines);
     const sequence = await this.prisma.workshopTicket.count({ where: { tenantId } });
     const ticketNumber = `OT-${String(sequence + 1).padStart(6, '0')}`;
@@ -1155,6 +1126,17 @@ export class WorkshopService {
           },
           assignments: { create: (dto.mechanicIds ?? []).map((employeeId) => ({ employeeId })) },
           lines: { create: this.lineData(lines) },
+          areaFindings: {
+            create: (dto.areaFindings ?? []).map((finding) => ({
+              tenantId,
+              areaId: finding.areaId.trim(),
+              areaLabel: finding.areaLabel.trim(),
+              view: finding.view,
+              condition: finding.condition,
+              finding: this.cleanOptional(finding.finding),
+              notes: this.cleanOptional(finding.notes),
+            })),
+          },
         },
         include: ticketInclude,
       });
@@ -1179,16 +1161,17 @@ export class WorkshopService {
     const ticket = await this.prisma.$transaction(async (tx) => {
       const current = await this.lockTicket(tx, tenantId, id);
       if (['DELIVERED', 'CANCELLED'].includes(current.status)) {
-        throw new BadRequestException(
-          'La orden está cerrada y no admite modificaciones.',
-        );
+        throw new BadRequestException('La orden está cerrada y no admite modificaciones.');
       }
       if (current.salesOrderId && dto.status === WorkshopTicketStatus.CANCELLED) {
         throw new BadRequestException(
           'Una orden facturada debe anularse mediante el proceso fiscal correspondiente.',
         );
       }
-      if (dto.lines && current.status === WorkshopTicketStatus.AWAITING_APPROVAL) {
+      if (
+        (dto.lines || dto.areaFindings) &&
+        current.status === WorkshopTicketStatus.AWAITING_APPROVAL
+      ) {
         throw new BadRequestException(
           'Registra la respuesta del presupuesto enviado antes de preparar una nueva versión.',
         );
@@ -1199,28 +1182,26 @@ export class WorkshopService {
         dto.status === WorkshopTicketStatus.DIAGNOSIS &&
         !current.reception
       ) {
-        throw new BadRequestException(
-          'Completa la recepción del vehículo antes de iniciar el diagnóstico.',
-        );
-      }
-      if (
-        current.status === WorkshopTicketStatus.DIAGNOSIS &&
-        dto.status === WorkshopTicketStatus.AWAITING_APPROVAL &&
-        !current.inspection
-      ) {
-        throw new BadRequestException(
-          'Completa la inspección técnica antes de solicitar aprobación del presupuesto.',
-        );
-      }
-      if (
-        dto.status === 'AWAITING_APPROVAL' &&
-        current.tasks.some(
-          (task) => task.kind === 'DIAGNOSIS' && !['COMPLETED', 'CANCELLED'].includes(task.status),
-        )
-      ) {
-        throw new BadRequestException(
-          'Finaliza las tareas de diagnóstico antes de enviar el presupuesto.',
-        );
+        const appointment = await tx.workshopAppointment.findUnique({
+          where: { convertedTicketId: id },
+          select: { id: true },
+        });
+        if (appointment) {
+          throw new BadRequestException(
+            'Completa la recepción del vehículo antes de iniciar el diagnóstico.',
+          );
+        }
+        await tx.workshopReception.create({
+          data: {
+            tenantId,
+            ticketId: id,
+            mileage: current.vehicle.mileage ?? 0,
+            observations: 'Recepción inicial creada al abrir la orden directamente.',
+            imageUrls: [],
+            initialMechanicId: current.assignments[0]?.employeeId,
+            createdById: userId,
+          },
+        });
       }
       if (
         current.status === WorkshopTicketStatus.IN_PROGRESS &&
@@ -1270,9 +1251,7 @@ export class WorkshopService {
       if (dto.status === WorkshopTicketStatus.IN_PROGRESS) {
         this.ensureApprovedWork(current);
         if (!current.salesOrder?.invoice) {
-          throw new BadRequestException(
-            'Factura la orden en Caja antes de iniciar la reparación.',
-          );
+          throw new BadRequestException('Factura la orden en Caja antes de iniciar la reparación.');
         }
         if (!(dto.promisedAt || current.promisedAt)) {
           throw new BadRequestException(
@@ -1281,7 +1260,7 @@ export class WorkshopService {
         }
       }
       if (dto.mechanicIds) await this.ensureMechanics(tenantId, dto.mechanicIds);
-      if (dto.lines) {
+      if (dto.lines || dto.areaFindings) {
         if (
           current.approvalStatus === WorkshopApprovalStatus.APPROVED ||
           current.approvalStatus === WorkshopApprovalStatus.PARTIALLY_APPROVED ||
@@ -1293,6 +1272,20 @@ export class WorkshopService {
         }
       }
       const lines = dto.lines ? await this.resolveLineCatalog(tenantId, dto.lines) : undefined;
+      const areaFindings = dto.areaFindings;
+      if (lines) {
+        const validAreaIds = new Set(
+          (areaFindings ?? current.areaFindings).map((finding) => finding.areaId),
+        );
+        const invalidAreaLine = lines.find(
+          (line) => line.vehicleAreaId && !validAreaIds.has(line.vehicleAreaId),
+        );
+        if (invalidAreaLine) {
+          throw new BadRequestException(
+            'Una línea del presupuesto está vinculada a un área del vehículo inexistente.',
+          );
+        }
+      }
       const totals = lines ? this.calculateTotals(lines) : null;
       const statusDates = this.statusDates(dto.status);
       const requestingApproval =
@@ -1363,6 +1356,17 @@ export class WorkshopService {
       if (dto.lines) {
         await tx.workshopTicketLine.deleteMany({ where: { ticketId: id } });
       }
+      if (areaFindings) {
+        const areaIds = areaFindings.map((finding) => finding.areaId);
+        await tx.workshopTicketLine.updateMany({
+          where: {
+            ticketId: id,
+            vehicleAreaId: areaIds.length ? { notIn: areaIds } : { not: null },
+          },
+          data: { vehicleAreaId: null },
+        });
+        await tx.workshopVehicleAreaFinding.deleteMany({ where: { ticketId: id } });
+      }
       const updated = await tx.workshopTicket.update({
         where: { id },
         data: {
@@ -1397,12 +1401,24 @@ export class WorkshopService {
             ? { assignments: { create: dto.mechanicIds.map((employeeId) => ({ employeeId })) } }
             : {}),
           ...(lines ? { lines: { create: this.lineData(lines) } } : {}),
+          ...(areaFindings
+            ? {
+                areaFindings: {
+                  create: areaFindings.map((finding) => ({
+                    tenantId,
+                    areaId: finding.areaId.trim(),
+                    areaLabel: finding.areaLabel.trim(),
+                    view: finding.view,
+                    condition: finding.condition,
+                    finding: this.cleanOptional(finding.finding),
+                    notes: this.cleanOptional(finding.notes),
+                  })),
+                },
+              }
+            : {}),
         },
         include: ticketInclude,
       });
-      if (cancelling && current.reception?.bayId) {
-        await this.releaseBay(tx, current.reception.bayId);
-      }
       if (dto.status && dto.status !== current.status) {
         await tx.workshopTicketStatusEvent.create({
           data: {
@@ -1433,13 +1449,21 @@ export class WorkshopService {
             laborTotal: updated.laborTotal,
             partsTotal: updated.partsTotal,
             total: updated.total,
-            snapshot: this.quoteSnapshot(updated.lines),
+            snapshot: this.quoteSnapshot(updated.lines, updated.areaFindings),
             createdById: userId,
           },
         });
-        return tx.workshopTicket.findUniqueOrThrow({ where: { id }, include: ticketInclude });
+        return tx.workshopTicket.findUniqueOrThrow({
+          relationLoadStrategy: 'join',
+          where: { id },
+          include: ticketInclude,
+        });
       }
-      return tx.workshopTicket.findUniqueOrThrow({ where: { id }, include: ticketInclude });
+      return tx.workshopTicket.findUniqueOrThrow({
+        relationLoadStrategy: 'join',
+        where: { id },
+        include: ticketInclude,
+      });
     });
 
     await this.audit.log({
@@ -1449,6 +1473,125 @@ export class WorkshopService {
       entity: 'WorkshopTicket',
       entityId: id,
       metadata: { fields: Object.keys(dto), status: ticket.status },
+    });
+    return ticket;
+  }
+
+  async deleteTicket(tenantId: string, userId: string, id: string) {
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      const ticket = await this.lockTicket(tx, tenantId, id);
+      if (ticket.salesOrderId || ticket.salesOrder) {
+        throw new BadRequestException(
+          'No se puede eliminar una orden enviada a Caja o facturada. Debe conservarse por trazabilidad fiscal.',
+        );
+      }
+      const expenseCount = await tx.workshopExpense.count({ where: { tenantId, ticketId: id } });
+      if (
+        ticket.advances.length ||
+        expenseCount > 0 ||
+        ticket.externalJobs.length ||
+        ticket.warranties.length
+      ) {
+        throw new BadRequestException(
+          'No se puede eliminar una orden con anticipos, gastos, trabajos externos o garantías registrados.',
+        );
+      }
+      if (
+        ticket.lines.some(
+          (line) =>
+            line.inventoryMovements.length > 0 ||
+            line.reservedQuantity > 0 ||
+            line.consumedQuantity.gt(0) ||
+            line.releasedQuantity.gt(0),
+        )
+      ) {
+        throw new BadRequestException(
+          'No se puede eliminar una orden con movimientos o reservas de inventario. Cancélala para conservar el historial.',
+        );
+      }
+
+      // Tasks can reference a ticket line with a restrictive FK. Remove them first so
+      // the ticket cascade can safely clear the remaining operational draft data.
+      await tx.workshopTask.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.workshopTicket.delete({ where: { id: ticket.id } });
+      return { id: ticket.id, ticketNumber: ticket.ticketNumber };
+    });
+
+    await this.audit.log({
+      tenantId,
+      userId,
+      action: 'WORKSHOP_TICKET_DELETED',
+      entity: 'WorkshopTicket',
+      entityId: deleted.id,
+      metadata: { ticketNumber: deleted.ticketNumber },
+    });
+    return deleted;
+  }
+
+  async reviseQuote(tenantId: string, userId: string, id: string) {
+    const ticket = await this.prisma.$transaction(async (tx) => {
+      const current = await this.lockTicket(tx, tenantId, id);
+      if (
+        current.status !== WorkshopTicketStatus.AWAITING_APPROVAL ||
+        current.approvalStatus !== WorkshopApprovalStatus.PENDING
+      ) {
+        throw new BadRequestException(
+          'Solo una cotización pendiente de respuesta puede volver a edición.',
+        );
+      }
+      if (current.salesOrderId) {
+        throw new BadRequestException(
+          'La cotización ya fue enviada a Caja y no puede volver a edición.',
+        );
+      }
+
+      await tx.workshopQuoteVersion.updateMany({
+        where: { ticketId: id, status: WorkshopApprovalStatus.PENDING },
+        data: {
+          status: WorkshopApprovalStatus.NOT_REQUESTED,
+          note: 'Versión sustituida por una revisión antes de recibir respuesta.',
+        },
+      });
+      await tx.workshopTicketLine.updateMany({
+        where: { ticketId: id },
+        data: { approvalStatus: WorkshopApprovalStatus.NOT_REQUESTED },
+      });
+      await tx.workshopTicket.update({
+        where: { id },
+        data: {
+          status: WorkshopTicketStatus.DIAGNOSIS,
+          approvalStatus: WorkshopApprovalStatus.NOT_REQUESTED,
+          approvalRequestedAt: null,
+          approvalNote: null,
+        },
+      });
+      await tx.workshopTicketStatusEvent.create({
+        data: {
+          tenantId,
+          ticketId: id,
+          fromStatus: current.status,
+          toStatus: WorkshopTicketStatus.DIAGNOSIS,
+          note: 'Cotización reabierta para preparar una nueva versión.',
+          createdById: userId,
+        },
+      });
+      return tx.workshopTicket.findUniqueOrThrow({
+        relationLoadStrategy: 'join',
+        where: { id },
+        include: ticketInclude,
+      });
+    });
+
+    await this.audit.log({
+      tenantId,
+      userId,
+      action: 'WORKSHOP_QUOTE_REOPENED',
+      entity: 'WorkshopTicket',
+      entityId: id,
+      metadata: {
+        ticketNumber: ticket.ticketNumber,
+        previousVersion: ticket.quoteVersions[0]?.version,
+      },
     });
     return ticket;
   }
@@ -1578,7 +1721,11 @@ export class WorkshopService {
           createdById: userId,
         },
       });
-      return tx.workshopTicket.findUniqueOrThrow({ where: { id }, include: ticketInclude });
+      return tx.workshopTicket.findUniqueOrThrow({
+        relationLoadStrategy: 'join',
+        where: { id },
+        include: ticketInclude,
+      });
     });
 
     await this.audit.log({
@@ -1629,6 +1776,12 @@ export class WorkshopService {
         );
       }
       const lines = await this.resolveLineCatalog(tenantId, dto.lines);
+      const validAreaIds = new Set(ticket.areaFindings.map((finding) => finding.areaId));
+      if (lines.some((line) => line.vehicleAreaId && !validAreaIds.has(line.vehicleAreaId))) {
+        throw new BadRequestException(
+          'Una línea del trabajo adicional está vinculada a un área inexistente.',
+        );
+      }
       const totals = this.calculateTotals(lines);
       const latest = await tx.workshopChangeOrder.findFirst({
         where: { ticketId },
@@ -1719,10 +1872,12 @@ export class WorkshopService {
       const acceptedLines = changeOrder.lines.map((line) => ({
         productId: line.productId ?? undefined,
         serviceId: line.serviceId ?? undefined,
+        vehicleAreaId: line.vehicleAreaId ?? undefined,
         type: line.type,
         description: line.description,
         quantity: line.quantity.toNumber(),
         unitPrice: line.unitPrice.toNumber(),
+        taxRate: line.taxRate,
       }));
       await this.resolveLineCatalog(tenantId, acceptedLines);
       await tx.workshopTicketLine.createMany({
@@ -1765,7 +1920,7 @@ export class WorkshopService {
           laborTotal: totals.laborTotal,
           partsTotal: totals.partsTotal,
           total: totals.total,
-          snapshot: this.quoteSnapshot(allLines),
+          snapshot: this.quoteSnapshot(allLines, ticket.areaFindings),
           note: `Revisión ${changeOrder.number} aprobada: ${changeOrder.title}`,
           createdById: userId,
         },
@@ -1804,6 +1959,7 @@ export class WorkshopService {
           ticketLineId: dto.ticketLineId,
           employeeId: dto.employeeId,
           title: dto.title.trim(),
+          category: this.cleanOptional(dto.category),
           description: this.cleanOptional(dto.description),
           estimatedMinutes: dto.estimatedMinutes,
         },
@@ -1825,6 +1981,7 @@ export class WorkshopService {
             ticketId,
             employeeId: task.employeeId,
             title: task.title,
+            category: task.category,
             kind: task.kind,
             ticketLineId: task.ticketLineId,
           },
@@ -1996,6 +2153,7 @@ export class WorkshopService {
           kind: dto.kind,
           ticketLineId: dto.ticketLineId,
           title: dto.title?.trim(),
+          category: dto.category === undefined ? undefined : this.cleanOptional(dto.category),
           description:
             dto.description === undefined ? undefined : this.cleanOptional(dto.description),
           estimatedMinutes: dto.estimatedMinutes,
@@ -2238,6 +2396,7 @@ export class WorkshopService {
           data: { status: WorkshopQualityStatus.PENDING },
         });
         return tx.workshopTicket.findUniqueOrThrow({
+          relationLoadStrategy: 'join',
           where: { id: ticketId },
           include: ticketInclude,
         });
@@ -2264,6 +2423,7 @@ export class WorkshopService {
       }
       if (
         ticket.status !== WorkshopTicketStatus.APPROVED &&
+        ticket.status !== WorkshopTicketStatus.IN_PROGRESS &&
         ticket.status !== WorkshopTicketStatus.READY_FOR_DELIVERY
       ) {
         throw new BadRequestException(
@@ -2331,7 +2491,7 @@ export class WorkshopService {
             );
           }
           const subtotal = quantity.mul(line.unitPrice).toDecimalPlaces(2);
-          const taxTotal = subtotal.mul(product.taxRate).toDecimalPlaces(2);
+          const taxTotal = subtotal.mul(line.taxRate).toDecimalPlaces(2);
           return {
             line,
             product,
@@ -2376,7 +2536,7 @@ export class WorkshopService {
               reservedQuantity: item.line.reservedQuantity,
               inventoryConsumedQuantity: item.line.consumedQuantity,
               unitPrice: item.line.unitPrice,
-              taxRate: item.product.taxRate,
+              taxRate: item.line.taxRate,
               taxTotal: item.taxTotal,
               subtotal: item.subtotal,
               total: item.total,
@@ -2433,7 +2593,7 @@ export class WorkshopService {
           inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
           status: ProductStatus.ACTIVE,
         },
-        select: { id: true },
+        select: { id: true, taxRate: true },
       }),
       this.prisma.workshopService.findMany({
         where: { tenantId, id: { in: [...new Set(serviceIds)] }, active: true },
@@ -2444,12 +2604,13 @@ export class WorkshopService {
               status: true,
               inventoryDestination: true,
               trackInventory: true,
+              taxRate: true,
             },
           },
         },
       }),
     ]);
-    const productsById = new Set(products.map((product) => product.id));
+    const productsById = new Map(products.map((product) => [product.id, product]));
     const servicesById = new Map(services.map((service) => [service.id, service]));
 
     return lines.map((line) => {
@@ -2460,7 +2621,7 @@ export class WorkshopService {
         if (line.serviceId) {
           throw new BadRequestException('Un repuesto no puede estar vinculado a un servicio.');
         }
-        return line;
+        return { ...line, taxRate: productsById.get(line.productId)!.taxRate };
       }
 
       if (!line.serviceId) {
@@ -2477,7 +2638,7 @@ export class WorkshopService {
       ) {
         throw new BadRequestException('Uno de los servicios seleccionados no está disponible.');
       }
-      return { ...line, productId: service.productId };
+      return { ...line, productId: service.productId, taxRate: service.product.taxRate };
     });
   }
 
@@ -2629,56 +2790,9 @@ export class WorkshopService {
     return vehicle;
   }
 
-  private async getBay(tenantId: string, id: string) {
-    const bay = await this.prisma.workshopBay.findFirst({ where: { id, tenantId } });
-    if (!bay) throw new NotFoundException('Bahía no encontrada.');
-    return bay;
-  }
-
-  private async reserveBay(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    ticketId: string,
-    bayId: string,
-    previousBayId?: string | null,
-  ) {
-    await tx.$queryRaw`SELECT "id" FROM "WorkshopBay" WHERE "id" = ${bayId} AND "tenantId" = ${tenantId} FOR UPDATE`;
-    const bay = await tx.workshopBay.findFirst({ where: { id: bayId, tenantId } });
-    if (!bay) throw new NotFoundException('Bahía no encontrada.');
-    const activeTicket = await tx.workshopReception.findFirst({
-      where: {
-        tenantId,
-        bayId,
-        ticketId: { not: ticketId },
-        ticket: { status: { notIn: ['DELIVERED', 'CANCELLED'] } },
-      },
-      select: { ticketId: true },
-    });
-    if (activeTicket || (bay.status !== WorkshopBayStatus.AVAILABLE && bayId !== previousBayId)) {
-      throw new ConflictException(`La bahía ${bay.code} ya no está disponible.`);
-    }
-    await tx.workshopBay.update({
-      where: { id: bayId },
-      data: { status: WorkshopBayStatus.OCCUPIED },
-    });
-    return bay;
-  }
-
-  private async releaseBay(tx: Prisma.TransactionClient, bayId: string) {
-    const anotherActiveTicket = await tx.workshopReception.findFirst({
-      where: { bayId, ticket: { status: { notIn: ['DELIVERED', 'CANCELLED'] } } },
-      select: { id: true },
-    });
-    if (!anotherActiveTicket) {
-      await tx.workshopBay.updateMany({
-        where: { id: bayId, status: WorkshopBayStatus.OCCUPIED },
-        data: { status: WorkshopBayStatus.AVAILABLE },
-      });
-    }
-  }
-
   private async getTicket(tenantId: string, id: string) {
     const ticket = await this.prisma.workshopTicket.findFirst({
+      relationLoadStrategy: 'join',
       where: { id, tenantId },
       include: ticketInclude,
     });
@@ -2692,7 +2806,11 @@ export class WorkshopService {
       SELECT "id" FROM "WorkshopTicket" WHERE "id" = ${id} AND "tenantId" = ${tenantId} FOR UPDATE
     `;
     if (!rows.length) throw new NotFoundException('Orden de trabajo no encontrada.');
-    return tx.workshopTicket.findUniqueOrThrow({ where: { id }, include: ticketInclude });
+    return tx.workshopTicket.findUniqueOrThrow({
+      relationLoadStrategy: 'join',
+      where: { id },
+      include: ticketInclude,
+    });
   }
 
   private ensureApprovedWork(
@@ -2742,6 +2860,7 @@ export class WorkshopService {
 
   private async getAppointment(tenantId: string, id: string) {
     const appointment = await this.prisma.workshopAppointment.findFirst({
+      relationLoadStrategy: 'join',
       where: { id, tenantId },
       include: appointmentInclude,
     });
@@ -2776,20 +2895,23 @@ export class WorkshopService {
       type: WorkshopTicketLineType;
       quantity: number | Prisma.Decimal;
       unitPrice: number | Prisma.Decimal;
+      taxRate?: number | Prisma.Decimal;
       releasedQuantity?: number | Prisma.Decimal;
     }>,
   ) {
     const totals = lines.reduce(
       (accumulator, line) => {
-        const total = new Prisma.Decimal(line.quantity)
+        const subtotal = new Prisma.Decimal(line.quantity)
           .sub(line.releasedQuantity ?? 0)
           .mul(line.unitPrice)
           .toDecimalPlaces(2);
+        const taxTotal = subtotal.mul(line.taxRate ?? 0.18).toDecimalPlaces(2);
+        const total = subtotal.add(taxTotal).toDecimalPlaces(2);
         accumulator.total = accumulator.total.plus(total);
-        if (line.type === WorkshopTicketLineType.LABOR)
-          accumulator.laborTotal = accumulator.laborTotal.plus(total);
+        if (line.type !== WorkshopTicketLineType.PART)
+          accumulator.laborTotal = accumulator.laborTotal.plus(subtotal);
         if (line.type === WorkshopTicketLineType.PART)
-          accumulator.partsTotal = accumulator.partsTotal.plus(total);
+          accumulator.partsTotal = accumulator.partsTotal.plus(subtotal);
         return accumulator;
       },
       {
@@ -2806,18 +2928,29 @@ export class WorkshopService {
       id?: string;
       productId?: string | null;
       serviceId?: string | null;
+      vehicleAreaId?: string | null;
       type: WorkshopTicketLineType;
       description: string;
       quantity: number | Prisma.Decimal;
       unitPrice: number | Prisma.Decimal;
+      taxRate?: number | Prisma.Decimal;
       releasedQuantity?: number | Prisma.Decimal;
     }>,
+    areaFindings: Array<{
+      areaId: string;
+      areaLabel: string;
+      view: string;
+      condition: string;
+      finding?: string | null;
+      notes?: string | null;
+    }> = [],
   ): Prisma.InputJsonValue {
     return {
       lines: lines.map((line) => ({
         id: line.id ?? null,
         productId: line.productId ?? null,
         serviceId: line.serviceId ?? null,
+        vehicleAreaId: line.vehicleAreaId ?? null,
         type: line.type,
         description: line.description,
         quantity: new Prisma.Decimal(line.quantity).toFixed(2),
@@ -2826,11 +2959,26 @@ export class WorkshopService {
           .sub(line.releasedQuantity ?? 0)
           .toFixed(2),
         unitPrice: new Prisma.Decimal(line.unitPrice).toFixed(2),
+        taxRate: new Prisma.Decimal(line.taxRate ?? 0.18).toFixed(4),
+        taxTotal: new Prisma.Decimal(line.quantity)
+          .sub(line.releasedQuantity ?? 0)
+          .mul(line.unitPrice)
+          .mul(line.taxRate ?? 0.18)
+          .toDecimalPlaces(2)
+          .toFixed(2),
         total: new Prisma.Decimal(line.quantity)
           .sub(line.releasedQuantity ?? 0)
           .mul(line.unitPrice)
           .toDecimalPlaces(2)
           .toFixed(2),
+      })),
+      areaFindings: areaFindings.map((finding) => ({
+        areaId: finding.areaId,
+        areaLabel: finding.areaLabel,
+        view: finding.view,
+        condition: finding.condition,
+        finding: finding.finding ?? null,
+        notes: finding.notes ?? null,
       })),
     };
   }
@@ -2839,10 +2987,12 @@ export class WorkshopService {
     lines: Array<{
       productId?: string | null;
       serviceId?: string | null;
+      vehicleAreaId?: string | null;
       type: WorkshopTicketLineType;
       description: string;
       quantity: number | Prisma.Decimal;
       unitPrice: number | Prisma.Decimal;
+      taxRate?: number | Prisma.Decimal;
     }>,
   ) {
     return lines.map((line) => {
@@ -2851,10 +3001,12 @@ export class WorkshopService {
       return {
         productId: line.productId || undefined,
         serviceId: line.serviceId || undefined,
+        vehicleAreaId: line.vehicleAreaId || undefined,
         type: line.type,
         description: line.description.trim(),
         quantity,
         unitPrice,
+        taxRate: new Prisma.Decimal(line.taxRate ?? 0.18).toDecimalPlaces(4),
         total: quantity.mul(unitPrice).toDecimalPlaces(2),
       };
     });
@@ -2930,8 +3082,18 @@ export class WorkshopService {
   private ensureAuthorizedTasksCompleted(
     ticket: Prisma.WorkshopTicketGetPayload<{ include: typeof ticketInclude }>,
   ) {
-    const pendingExternal = ticket.lines.find(line => line.type === 'OTHER' && line.approvalStatus === 'APPROVED' && !ticket.externalJobs.some(job => job.ticketLineId === line.id && job.status === 'RETURNED'));
-    if (pendingExternal) throw new BadRequestException(`Registra el retorno del servicio externo: ${pendingExternal.description}.`);
+    const pendingExternal = ticket.lines.find(
+      (line) =>
+        line.type === 'OTHER' &&
+        line.approvalStatus === 'APPROVED' &&
+        !ticket.externalJobs.some(
+          (job) => job.ticketLineId === line.id && job.status === 'RETURNED',
+        ),
+    );
+    if (pendingExternal)
+      throw new BadRequestException(
+        `Registra el retorno del servicio externo: ${pendingExternal.description}.`,
+      );
     if (ticket.tasks.some((task) => !['COMPLETED', 'CANCELLED'].includes(task.status)))
       throw new BadRequestException('Finaliza las tareas antes de aprobar el control de calidad.');
     const pendingLabor = ticket.lines
@@ -3035,4 +3197,36 @@ export class WorkshopService {
     const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
     return `OT-${ticketNumber.replace(/^OT-/, '')}-${stamp}-${suffix}`;
   }
+}
+
+async function ensureReceptionImageBucket(url: string, key: string, bucket: string) {
+  const bucketUrl = `${url}/storage/v1/bucket/${encodeURIComponent(bucket)}`;
+  const headers = { Authorization: `Bearer ${key}`, apikey: key };
+  const existing = await fetch(bucketUrl, { headers });
+  const body = (await existing.json().catch(() => null)) as {
+    code?: string;
+    statusCode?: string | number;
+    message?: string;
+  } | null;
+  const missing =
+    existing.status === 404 ||
+    (existing.status === 400 &&
+      (body?.code === 'NoSuchBucket' ||
+        String(body?.statusCode) === '404' ||
+        body?.message === 'Bucket not found'));
+  if (missing) {
+    const created = await fetch(`${url}/storage/v1/bucket`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: bucket, name: bucket, public: true }),
+    });
+    if (!created.ok && created.status !== 409) {
+      const error = (await created.json().catch(() => null)) as { message?: string } | null;
+      if (/already exists/i.test(error?.message ?? '')) return;
+      throw new BadRequestException('No se pudo preparar el almacenamiento de imágenes.');
+    }
+    return;
+  }
+  if (!existing.ok)
+    throw new BadRequestException('El almacenamiento de imágenes no está disponible.');
 }

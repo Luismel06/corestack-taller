@@ -473,23 +473,6 @@ test('doble envío a Caja crea una sola orden y bloquea cambios posteriores', as
   );
 });
 
-test('solo una recepción puede ocupar una bahía en solicitudes simultáneas', async () => {
-  const f = await fixture({ count: 1 });
-  const second = await workshop.createTicket(f.tenant.id, f.user.id, {
-    customerId: f.customer.id,
-    vehicleId: f.vehicle.id,
-    complaint: 'Otra recepción',
-  });
-  const bay = await workshop.createBay(f.tenant.id, f.user.id, { code: 'B1', name: 'Bahía uno' });
-  const results = await Promise.allSettled(
-    [f.ticket, second].map((ticket) =>
-      workshop.createReception(f.tenant.id, f.user.id, ticket.id, { mileage: 1000, bayId: bay.id }),
-    ),
-  );
-  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
-  assert.equal(await db.workshopReception.count({ where: { bayId: bay.id } }), 1);
-});
-
 test('entrega bloqueada con saldo o factura anulada; pago completo habilita una sola entrega', async () => {
   const f = await fixture({ count: 1 });
   await repairing(f);
@@ -614,7 +597,7 @@ test('permisos del mecánico y doble inicio no duplican el registro de tiempo', 
   await workshop.saveQualityCheck(f.tenant.id, f.user.id, f.ticket.id, quality);
 });
 
-test('tenant ajeno no puede autorizar ni modificar una orden o su bahía', async () => {
+test('tenant ajeno no puede autorizar una orden', async () => {
   const f = await fixture({ count: 1 });
   const other = await db.tenant.create({
     data: { name: 'Otro taller', slug: `other-${randomUUID()}` },
@@ -627,15 +610,6 @@ test('tenant ajeno no puede autorizar ni modificar una orden o su bahía', async
       quoteVersionId: f.ticket.quoteVersions[0].id,
     }),
     /no encontrada/,
-  );
-  const bay = await workshop.createBay(f.tenant.id, f.user.id, { code: 'B1', name: 'Bahía' });
-  await assert.rejects(
-    workshop.updateBay(other.id, f.user.id, bay.id, { status: 'MAINTENANCE' }),
-    /no encontrada/,
-  );
-  assert.equal(
-    (await db.workshopBay.findUniqueOrThrow({ where: { id: bay.id } })).status,
-    'AVAILABLE',
   );
 });
 
@@ -779,7 +753,7 @@ async function cashierFixture(f) {
   return { user: { ...user, memberships: [membership] }, cashSession, sequence };
 }
 
-test('OT → repuesto → Caja → factura B02 y pago → entrega sin descontar dos veces', async () => {
+test('OT → repuesto → Caja → factura B02 y pago → cierre entregado sin descontar dos veces', async () => {
   const f = await fixture({ count: 1, stock: 1 });
   const c = await cashierFixture(f);
   const pos = new PosService(db, {
@@ -840,15 +814,13 @@ test('OT → repuesto → Caja → factura B02 y pago → entrega sin descontar 
   assert.equal(await db.invoice.count({ where: { tenantId: f.tenant.id } }), 1);
   assert.equal(
     (await db.workshopTicket.findUniqueOrThrow({ where: { id: f.ticket.id } })).status,
-    'READY_FOR_DELIVERY',
-  );
-  await workshop.createDelivery(f.tenant.id, f.user.id, f.ticket.id, {
-    recipientName: f.customer.name,
-    mileageOut: 1005,
-  });
-  assert.equal(
-    (await db.workshopTicket.findUniqueOrThrow({ where: { id: f.ticket.id } })).status,
     'DELIVERED',
+  );
+  assert.equal(
+    await db.workshopTicketStatusEvent.count({
+      where: { ticketId: f.ticket.id, toStatus: 'DELIVERED' },
+    }),
+    1,
   );
 });
 
@@ -1978,7 +1950,7 @@ test('límite de cinco usuarios conserva roles del taller y no hereda permisos a
   const f = await employeeAdminFixture();
   const employees = new EmployeesService(db);
   let latest;
-  for (const role of ['SERVICE_ADVISOR', 'RECEPTIONIST', 'SUPERVISOR', 'INVENTORY_MANAGER']) {
+  for (const role of ['ORDER_TAKER', 'ORDER_TAKER', 'ORDER_TAKER', 'ORDER_TAKER']) {
     latest = await employees.create(f.tenant.id, f.actor, {
       name: 'Empleado de pruebas',
       email: `${randomUUID()}@example.test`,
@@ -1988,13 +1960,18 @@ test('límite de cinco usuarios conserva roles del taller y no hereda permisos a
     assert.equal(latest.user.memberships[0].role, role);
   }
   assert.equal(await db.employeeProfile.count({ where: { tenantId: f.tenant.id } }), 5);
-  assert.deepEqual(await employees.userLimit(f.tenant.id), { limit: 5, used: 5, available: 0 });
+  assert.deepEqual(await employees.userLimit(f.tenant.id), {
+    limit: 5,
+    used: 5,
+    available: 0,
+    mechanics: 0,
+  });
   await assert.rejects(
     employees.create(f.tenant.id, f.actor, {
       name: 'Sexto usuario',
       email: `${randomUUID()}@example.test`,
       password: 'Integration-only-123!',
-      role: 'ACCOUNTING',
+      role: 'ORDER_TAKER',
     }),
     /máximo de 5/,
   );
@@ -2003,7 +1980,9 @@ test('límite de cinco usuarios conserva roles del taller y no hereda permisos a
     canManageFiscalSequences: true,
     permissionOverrides: { 'quotes.create': false },
   });
-  const changed = await employees.update(f.tenant.id, f.actor, latest.id, { role: 'CASHIER' });
+  const changed = await employees.update(f.tenant.id, f.actor, latest.id, {
+    role: 'ORDER_TAKER',
+  });
   const membership = changed.user.memberships[0];
   assert.deepEqual(membership.permissionOverrides, {});
   assert.equal(membership.canManageFiscalSequences, false);
@@ -2011,40 +1990,47 @@ test('límite de cinco usuarios conserva roles del taller y no hereda permisos a
   assert.equal(effectivePermissions(membership)['pos.sell'], true);
 });
 
-test('cupos concurrentes y reactivación conservan como máximo cinco usuarios activos', async () => {
+test('los mecánicos no consumen cupos administrativos', async () => {
   const f = await employeeAdminFixture();
   const service = new EmployeesService(db);
-  const input = () => ({
+  const mechanicInput = () => ({
     name: 'Usuario de prueba',
     email: `${randomUUID()}@example.test`,
     role: 'MECHANIC',
     password: 'Integration-only-123!',
   });
-  const first = await service.create(f.tenant.id, f.actor, input());
-  await service.create(f.tenant.id, f.actor, input());
-  await service.create(f.tenant.id, f.actor, input());
-  const attempts = await Promise.allSettled([
-    service.create(f.tenant.id, f.actor, input()),
-    service.create(f.tenant.id, f.actor, input()),
-  ]);
-  assert.equal(attempts.filter((result) => result.status === 'fulfilled').length, 1);
-  assert.match(
-    attempts.find((result) => result.status === 'rejected').reason.message,
-    /máximo de 5/,
-  );
-  assert.equal(await db.employeeProfile.count({ where: { tenantId: f.tenant.id } }), 5);
-  await service.update(f.tenant.id, f.actor, first.id, { status: 'INACTIVE' });
-  const replacement = await service.create(f.tenant.id, f.actor, input());
-  await assert.rejects(
-    service.update(f.tenant.id, f.actor, first.id, { status: 'ACTIVE' }),
-    /máximo de 5/,
-  );
-  await service.update(f.tenant.id, f.actor, replacement.id, {
-    name: 'Sigue editable con cupo lleno',
+  const mechanics = [];
+  for (let index = 0; index < 6; index += 1) {
+    mechanics.push(await service.create(f.tenant.id, f.actor, mechanicInput()));
+  }
+  assert.deepEqual(await service.userLimit(f.tenant.id), {
+    limit: 5,
+    used: 1,
+    available: 4,
+    mechanics: 6,
   });
-  await service.update(f.tenant.id, f.actor, replacement.id, { status: 'INACTIVE' });
-  await service.update(f.tenant.id, f.actor, first.id, { status: 'ACTIVE' });
-  assert.equal((await service.userLimit(f.tenant.id)).used, 5);
+
+  for (let index = 0; index < 4; index += 1) {
+    await service.create(f.tenant.id, f.actor, {
+      name: 'Coordinador de prueba',
+      email: `${randomUUID()}@example.test`,
+      role: 'ORDER_TAKER',
+      password: 'Integration-only-123!',
+    });
+  }
+  const extraMechanic = await service.create(f.tenant.id, f.actor, mechanicInput());
+  await assert.rejects(
+    service.update(f.tenant.id, f.actor, mechanics[0].id, { role: 'ORDER_TAKER' }),
+    /máximo de 5/,
+  );
+  await service.update(f.tenant.id, f.actor, extraMechanic.id, { status: 'INACTIVE' });
+  await service.update(f.tenant.id, f.actor, extraMechanic.id, { status: 'ACTIVE' });
+  assert.deepEqual(await service.userLimit(f.tenant.id), {
+    limit: 5,
+    used: 5,
+    available: 0,
+    mechanics: 7,
+  });
 });
 
 test('demo aditiva usa flujos reales, conserva usuarios/facturas y no duplica contenido al reintentar', async () => {

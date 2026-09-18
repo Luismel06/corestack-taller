@@ -151,6 +151,25 @@ export type DashboardSummary = {
   }>;
 };
 
+export type OperationalDashboardSummary = Pick<
+  DashboardSummary,
+  | 'netSalesToday'
+  | 'completedOrdersToday'
+  | 'pendingInvoices'
+  | 'openCashSessions'
+  | 'lowStockProducts'
+  | 'recentAuditActivity'
+  | 'salesLast7Days'
+> & {
+  recentInvoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    customerName: string;
+    issuedAt: string | null;
+    createdAt: string;
+  }>;
+};
+
 export type ProductSalesMetric = {
   productId: string;
   name: string;
@@ -251,18 +270,6 @@ export type WorkshopMechanic = {
   user: { id: string; name: string; email: string; phone: string | null };
 };
 
-export type WorkshopBayStatus = 'AVAILABLE' | 'OCCUPIED' | 'BLOCKED' | 'MAINTENANCE';
-
-export type WorkshopBay = {
-  id: string;
-  code: string;
-  name: string;
-  status: WorkshopBayStatus;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type WorkshopService = {
   id: string;
   tenantId: string;
@@ -284,10 +291,12 @@ export type WorkshopTicketLine = {
   id: string;
   productId: string | null;
   serviceId: string | null;
+  vehicleAreaId: string | null;
   type: 'LABOR' | 'PART' | 'OTHER';
   description: string;
   quantity: string;
   unitPrice: string;
+  taxRate: string;
   total: string;
   reservedQuantity: number;
   consumedQuantity: string;
@@ -329,6 +338,7 @@ export type WorkshopTask = {
   employeeId: string | null;
   kind: 'LEGACY' | 'DIAGNOSIS' | 'REPAIR';
   ticketLineId: string | null;
+  category: string | null;
   title: string;
   description: string | null;
   status: WorkshopTaskStatus;
@@ -360,14 +370,18 @@ export type WorkshopQuoteVersion = {
       id?: string | null;
       productId?: string | null;
       serviceId?: string | null;
+      vehicleAreaId?: string | null;
       type: 'LABOR' | 'PART' | 'OTHER';
       description: string;
       quantity: string;
       releasedQuantity?: string;
       billableQuantity?: string;
       unitPrice: string;
+      taxRate?: string;
+      taxTotal?: string;
       total: string;
     }>;
+    areaFindings?: WorkshopVehicleAreaFinding[];
   } | null;
   note: string | null;
   decision: WorkshopAuthorizationEvidence | null;
@@ -395,6 +409,7 @@ export type WorkshopChangeOrderLine = {
   id: string;
   productId: string | null;
   serviceId: string | null;
+  vehicleAreaId: string | null;
   type: 'LABOR' | 'PART' | 'OTHER';
   description: string;
   quantity: string;
@@ -457,6 +472,7 @@ export type WorkshopTicket = {
   vehicle: WorkshopVehicle;
   assignments: Array<{ id: string; employee: WorkshopMechanic }>;
   lines: WorkshopTicketLine[];
+  areaFindings: WorkshopVehicleAreaFinding[];
   tasks: WorkshopTask[];
   reception: WorkshopReception | null;
   qualityCheck: WorkshopQualityCheck | null;
@@ -480,6 +496,20 @@ export type WorkshopTicket = {
   } | null;
 };
 
+export type WorkshopVehicleAreaCondition = 'OK' | 'ATTENTION' | 'REPAIR';
+
+export type WorkshopVehicleAreaFinding = {
+  id?: string;
+  areaId: string;
+  areaLabel: string;
+  view: 'front' | 'back' | 'left' | 'right' | 'top';
+  condition: WorkshopVehicleAreaCondition;
+  finding: string | null;
+  notes: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type WorkshopReception = {
   id: string;
   ticketId: string;
@@ -491,14 +521,12 @@ export type WorkshopReception = {
   interiorCondition: string | null;
   warningLights: string | null;
   observations: string | null;
-  bay: string | null;
-  bayId: string | null;
+  imageUrls: string[];
   initialMechanicId: string | null;
   receivedAt: string;
   createdAt: string;
   updatedAt: string;
   initialMechanic: WorkshopMechanic | null;
-  bayRef: WorkshopBay | null;
   createdBy: { id: string; name: string };
 };
 
@@ -1360,11 +1388,6 @@ export type FiscalSequence = {
   issuerDocumentNumber: string | null;
 };
 
-export type CreateCashRegisterPayload = {
-  name: string;
-  location?: string;
-};
-
 export type CreateFiscalSequenceInput = {
   documentType: string;
   startNumber: number;
@@ -1983,7 +2006,7 @@ const apiMessageTranslations: Record<string, string> = {
   'Admins cannot open cash sessions.': 'El administrador no puede abrir caja.',
   'Employee does not have permission to view cash logs.':
     'Tu usuario no tiene permiso para ver los logs de caja.',
-  'An open cash session for this cashier is required to complete POS sales.':
+  'An open cash session for this user is required to complete POS sales.':
     'Debes abrir una caja con tu usuario antes de completar ventas.',
   'Employee does not have POS access.': 'Tu usuario no tiene permiso para usar la caja.',
   'Employee profile must be active to use POS.':
@@ -2017,12 +2040,12 @@ const apiMessageTranslations: Record<string, string> = {
   'Only pending sales orders can be cancelled.': 'Solo las ordenes pendientes pueden cancelarse.',
   'Sales order has already been completed.': 'Esta orden ya fue cobrada.',
   'Sales order has already been cancelled.': 'Esta orden ya fue cancelada.',
-  'Sales order is already claimed by another cashier.':
-    'Esta orden ya esta siendo atendida por otro cajero.',
+  'Sales order is already claimed by another operator.':
+    'Esta orden ya esta siendo atendida por otro operador.',
   'Only claimed sales orders can be released.': 'Solo se pueden liberar ordenes tomadas por caja.',
   'Employee does not have permission to release this sales order.':
     'Tu usuario no puede liberar esta orden.',
-  'An open cash session for this cashier is required to claim sales orders.':
+  'An open cash session for this user is required to claim sales orders.':
     'Debes abrir caja antes de tomar una orden para cobrar.',
   'Close pending claimed sales orders before closing cash session.':
     'Libera o cobra las ordenes tomadas antes de cerrar la caja.',
@@ -2331,6 +2354,12 @@ function tenantHeaders(tenantId: string, accessToken: string) {
 
 export function getDashboardSummary(tenantId: string, accessToken: string) {
   return fetchJson<DashboardSummary>('/dashboard/summary', {
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function getOperationalDashboardSummary(tenantId: string, accessToken: string) {
+  return fetchJson<OperationalDashboardSummary>('/dashboard/operational-summary', {
     headers: tenantHeaders(tenantId, accessToken),
   });
 }
@@ -2673,9 +2702,12 @@ export function getEmployees(tenantId: string, accessToken: string) {
 }
 
 export function getEmployeeUserLimit(tenantId: string, accessToken: string) {
-  return fetchJson<{ limit: number; used: number; available: number }>('/employees/limit', {
-    headers: tenantHeaders(tenantId, accessToken),
-  });
+  return fetchJson<{ limit: number; used: number; available: number; mechanics: number }>(
+    '/employees/limit',
+    {
+      headers: tenantHeaders(tenantId, accessToken),
+    },
+  );
 }
 
 export function getEmployee(tenantId: string, accessToken: string, employeeId: string) {
@@ -2838,18 +2870,6 @@ export function deleteWarehouseProduct(tenantId: string, accessToken: string, pr
   return fetchJson<Product>(`/warehouse/products/${productId}`, {
     method: 'DELETE',
     headers: tenantHeaders(tenantId, accessToken),
-  });
-}
-
-export function createCashRegister(
-  tenantId: string,
-  accessToken: string,
-  payload: CreateCashRegisterPayload,
-) {
-  return fetchJson<CashRegister>('/cash/registers', {
-    method: 'POST',
-    headers: tenantHeaders(tenantId, accessToken),
-    body: JSON.stringify(payload),
   });
 }
 
@@ -3562,37 +3582,6 @@ export function getWorkshopMechanics(tenantId: string, accessToken: string) {
   });
 }
 
-export function getWorkshopBays(tenantId: string, accessToken: string) {
-  return fetchJson<WorkshopBay[]>('/workshop/bays', {
-    headers: tenantHeaders(tenantId, accessToken),
-  });
-}
-
-export function createWorkshopBay(
-  tenantId: string,
-  accessToken: string,
-  payload: { code: string; name: string; notes?: string },
-) {
-  return fetchJson<WorkshopBay>('/workshop/bays', {
-    method: 'POST',
-    headers: tenantHeaders(tenantId, accessToken),
-    body: JSON.stringify(payload),
-  });
-}
-
-export function updateWorkshopBay(
-  tenantId: string,
-  accessToken: string,
-  bayId: string,
-  payload: Partial<{ code: string; name: string; notes: string; status: WorkshopBayStatus }>,
-) {
-  return fetchJson<WorkshopBay>(`/workshop/bays/${bayId}`, {
-    method: 'PATCH',
-    headers: tenantHeaders(tenantId, accessToken),
-    body: JSON.stringify(payload),
-  });
-}
-
 export function getWorkshopServices(
   tenantId: string,
   accessToken: string,
@@ -3757,10 +3746,19 @@ export type WorkshopTicketPayload = {
   lines?: Array<{
     productId?: string;
     serviceId?: string;
+    vehicleAreaId?: string;
     type: 'LABOR' | 'PART' | 'OTHER';
     description: string;
     quantity: number;
     unitPrice: number;
+  }>;
+  areaFindings?: Array<{
+    areaId: string;
+    areaLabel: string;
+    view: 'front' | 'back' | 'left' | 'right' | 'top';
+    condition: WorkshopVehicleAreaCondition;
+    finding?: string;
+    notes?: string;
   }>;
 };
 
@@ -3791,6 +3789,20 @@ export function updateWorkshopTicket(
   });
 }
 
+export function deleteWorkshopTicket(tenantId: string, accessToken: string, ticketId: string) {
+  return fetchJson<{ id: string; ticketNumber: string }>(`/workshop/tickets/${ticketId}`, {
+    method: 'DELETE',
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
+export function reviseWorkshopQuote(tenantId: string, accessToken: string, ticketId: string) {
+  return fetchJson<WorkshopTicket>(`/workshop/tickets/${ticketId}/quote/revise`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantId, accessToken),
+  });
+}
+
 export type WorkshopReceptionPayload = {
   mileage: number;
   fuelLevel?: string;
@@ -3800,8 +3812,7 @@ export type WorkshopReceptionPayload = {
   interiorCondition?: string;
   warningLights?: string;
   observations?: string;
-  bay?: string;
-  bayId?: string;
+  imageUrls?: string[];
   initialMechanicId?: string;
 };
 
@@ -3829,6 +3840,20 @@ export function updateWorkshopReception(
     headers: tenantHeaders(tenantId, accessToken),
     body: JSON.stringify(payload),
   });
+}
+
+export function uploadWorkshopReceptionImages(
+  tenantId: string,
+  accessToken: string,
+  files: File[],
+) {
+  const formData = new FormData();
+  files.forEach((file) => formData.append('files', file));
+  return fetchFormData<{ imageUrls: string[] }>(
+    '/workshop/reception-images',
+    formData,
+    tenantHeaders(tenantId, accessToken),
+  );
 }
 
 export type WorkshopQualityCheckPayload = {
@@ -3967,6 +3992,7 @@ export type WorkshopTaskInput = {
   kind: 'DIAGNOSIS' | 'REPAIR';
   ticketLineId?: string;
   title: string;
+  category?: string;
   employeeId?: string;
   description?: string;
   estimatedMinutes?: number;

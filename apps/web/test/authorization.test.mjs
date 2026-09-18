@@ -8,7 +8,7 @@ function session(role, permissionOverrides = {}) {
   return { role, permissions: { ...effective, ...legacyPermissions(effective) } };
 }
 
-test('cada rol heredado entra a su espacio sin exponer el POS y el mecánico queda como recurso', () => {
+test('cada rol heredado entra a su espacio y Caja queda disponible para sus roles operativos', () => {
   const cases = {
     ADMIN: '/workshop',
     MANAGER: '/workshop',
@@ -24,7 +24,7 @@ test('cada rol heredado entra a su espacio sin exponer el POS y el mecánico que
     const current = session(role);
     assert.equal(getDefaultPathForSession(current), path, role);
     assert.equal(canAccessPath(current, path), true, role);
-    assert.equal(canAccessPath(current, '/pos'), role === 'CASHIER', role);
+    assert.equal(canAccessPath(current, '/pos'), ['ADMIN', 'CASHIER'].includes(role), role);
   }
 });
 
@@ -32,6 +32,12 @@ test('Toma de Órdenes inicia en la agenda operativa y el mecánico no recibe vi
   const orderTaker = session('ORDER_TAKER');
   assert.equal(getDefaultPathForSession(orderTaker), '/workshop/agenda');
   assert.equal(canAccessPath(orderTaker, '/workshop/agenda'), true);
+  assert.equal(canAccessPath(orderTaker, '/workshop'), true);
+  assert.equal(canAccessPath(orderTaker, '/pos'), true);
+  assert.equal(canAccessPath(orderTaker, '/purchase-orders'), false);
+  assert.equal(canAccessPath(orderTaker, '/invoices/example/print'), true);
+  assert.equal(canAccessPath(orderTaker, '/invoices'), false);
+  assert.equal(canAccessPath(session('ORDER_TAKER', { 'invoices.reprint': false }), '/invoices/example/print'), false);
   const mechanic = session('MECHANIC');
   assert.equal(canAccessPath(mechanic, '/workshop'), false);
   assert.equal(getDefaultPathForSession(mechanic), '/access');
@@ -49,8 +55,45 @@ test('las denegaciones actualizadas prevalecen sobre rol y navegación anterior'
   ])
     assert.equal(canAccessPath(session('ADMIN', { [permission]: false }), path), false, path);
   assert.equal(canAccessPath(session('CASHIER', { 'pos.sell': false }), '/pos'), false);
+  assert.equal(canAccessPath(session('ADMIN'), '/cash/registers'), false);
   assert.equal(
     hasPermission(session('ADMIN', { 'workorders.deliver': false }), 'workorders.deliver'),
+    false,
+  );
+});
+
+test('administrador y coordinador pueden operar Caja sin depender del rol Cajero', () => {
+  for (const role of ['ADMIN', 'ORDER_TAKER']) {
+    const current = session(role);
+    assert.equal(canAccessPath(current, '/pos'), true, role);
+    assert.equal(hasPermission(current, 'pos.sell'), true, `${role}: cobrar`);
+    assert.equal(hasPermission(current, 'cash.open'), true, `${role}: abrir caja`);
+    assert.equal(hasPermission(current, 'cash.close'), true, `${role}: cerrar caja`);
+  }
+});
+
+test('el coordinador opera las OT completas pero no elimina expedientes creados', () => {
+  const coordinator = session('ORDER_TAKER');
+  for (const permission of [
+    'workorders.view',
+    'workorders.create',
+    'workorders.edit',
+    'workorders.assign',
+    'workorders.change_status',
+    'workorders.diagnose',
+    'workorders.quality',
+    'workorders.deliver',
+    'workorders.send_to_cashier',
+    'quotes.create',
+    'quotes.record_approval',
+    'inventory.workshop_parts',
+    'inventory.adjust',
+  ])
+    assert.equal(hasPermission(coordinator, permission), true, permission);
+  assert.equal(hasPermission(coordinator, 'workorders.cancel'), false);
+  assert.equal(hasPermission(coordinator, 'appointments.manage'), true);
+  assert.equal(
+    hasPermission(session('ORDER_TAKER', { 'workorders.cancel': true }), 'workorders.cancel'),
     false,
   );
 });
@@ -99,6 +142,28 @@ test('roles del taller acceden al ERP por permisos sin depender del rol anterior
   assert.equal(hasPermission(inventory, 'payables.pay'), false);
   assert.equal(hasPermission(session('ACCOUNTING'), 'receivables.collect'), false);
   assert.equal(hasPermission(session('ACCOUNTANT'), 'receivables.collect'), true);
+  const accountant = session('ACCOUNTANT');
+  for (const path of [
+    '/dashboard',
+    '/invoices',
+    '/receivables',
+    '/payables',
+    '/credit-approvals',
+    '/returns',
+    '/settings/fiscal-sequences',
+  ])
+    assert.equal(canAccessPath(accountant, path), true, `ACCOUNTANT: ${path}`);
+  for (const permission of [
+    'invoices.manage',
+    'receivables.collect',
+    'payables.pay',
+    'credit.approve',
+    'returns.approve',
+    'settings.fiscal',
+  ])
+    assert.equal(hasPermission(accountant, permission), true, `ACCOUNTANT: ${permission}`);
+  assert.equal(hasPermission(accountant, 'employees.manage'), false);
+  assert.equal(hasPermission(accountant, 'pos.sell'), false);
 });
 
 test('revocación explícita se respeta en todos los accesos ERP, incluso administrador', () => {

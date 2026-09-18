@@ -21,11 +21,15 @@ import {
   FileText,
   Gauge,
   Loader2,
-  Mail,
+  MessageCircle,
+  PencilLine,
   Plus,
+  Receipt,
   Search,
   Send,
+  ShoppingCart,
   SlidersHorizontal,
+  Trash2,
   UserRound,
   Wrench,
   X,
@@ -38,20 +42,23 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ActionDialog } from '@/components/ui/action-dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   createWorkshopTask,
   createWorkshopChangeOrder,
+  createProduct,
+  createWorkshopService,
   createWorkshopTicket,
   createWorkshopVehicle,
   createWorkshopReception,
+  deleteWorkshopTicket,
   createWorkshopDelivery,
   getCustomers,
   getProducts,
   getWorkshopMechanics,
-  getWorkshopBays,
   getWorkshopChangeOrders,
   getWorkshopVehicleHistory,
   getWorkshopServices,
@@ -59,6 +66,7 @@ import {
   getWorkshopVehicles,
   respondWorkshopApproval,
   respondWorkshopChangeOrder,
+  reviseWorkshopQuote,
   saveWorkshopQualityCheck,
   saveWorkshopInspection,
   sendWorkshopTicketToCashier,
@@ -73,7 +81,6 @@ import {
   type WorkshopChangeOrder,
   type WorkshopChangeOrderStatus,
   type WorkshopTicket,
-  type WorkshopTicketPriority,
   type WorkshopTicketStatus,
   type WorkshopVehicle,
   type WorkshopVehicleType,
@@ -82,9 +89,11 @@ import {
   type WorkshopReceptionPayload,
   type WorkshopQualityCheckPayload,
   type WorkshopVehicleHistory,
+  type WorkshopVehicleAreaFinding,
   type WorkshopDeliveryPayload,
   type WorkshopInspectionPayload,
   type WorkshopInspectionResult,
+  type Product,
 } from '@/lib/api';
 import { brand } from '@/lib/brand';
 import { SessionRequired, useCurrentSession } from './session-required';
@@ -95,6 +104,8 @@ import {
 } from './workshop-authorization-dialog';
 import { DocumentEmailDialog } from './document-email-dialog';
 import { VehicleIllustration } from './vehicle-illustration';
+import { VehicleDamageMap } from './vehicle-damage-map';
+import { VEHICLE_AREA_LABELS } from './vehicle-damage-map-config';
 
 type TicketLineForm = {
   productId: string;
@@ -103,16 +114,16 @@ type TicketLineForm = {
   description: string;
   quantity: string;
   unitPrice: string;
+  taxRate?: string;
+  vehicleAreaId?: string;
 };
 
 const emptyTicket = {
   customerId: '',
   vehicleId: '',
   complaint: '',
-  priority: 'NORMAL' as WorkshopTicketPriority,
   promisedAt: '',
   diagnosis: '',
-  internalNotes: '',
   customerNotes: '',
   mechanicIds: [] as string[],
   lines: [] as TicketLineForm[],
@@ -145,17 +156,15 @@ const statusLabels: Record<WorkshopTicketStatus, string> = {
 const nextStatus: Partial<Record<WorkshopTicketStatus, WorkshopTicketStatus>> = {
   RECEIVED: 'DIAGNOSIS',
   DIAGNOSIS: 'AWAITING_APPROVAL',
-  APPROVED: 'IN_PROGRESS',
-  IN_PROGRESS: 'READY_FOR_DELIVERY',
 };
 
-type WorkOrderStage = 'DIAGNOSIS' | 'QUOTE' | 'REPAIR' | 'DELIVERY';
-type WorkOrderKpi = 'ALL' | 'DIAGNOSIS' | 'TO_QUOTE' | 'AWAITING' | 'REPAIR' | 'READY';
+type WorkOrderStage = 'DIAGNOSIS' | 'QUOTE' | 'BILLING';
+type WorkOrderKpi = 'ALL' | 'DIAGNOSIS' | 'TO_QUOTE' | 'AWAITING' | 'BILLING' | 'DELIVERED';
 
 function stageForTicket(ticket: WorkshopTicket): WorkOrderStage {
-  if (['READY_FOR_DELIVERY', 'DELIVERED'].includes(ticket.status)) return 'DELIVERY';
-  if (ticket.status === 'IN_PROGRESS') return 'REPAIR';
-  if (['AWAITING_APPROVAL', 'APPROVED'].includes(ticket.status)) return 'QUOTE';
+  if (['APPROVED', 'IN_PROGRESS', 'READY_FOR_DELIVERY', 'DELIVERED'].includes(ticket.status))
+    return 'BILLING';
+  if (ticket.status === 'AWAITING_APPROVAL') return 'QUOTE';
   return 'DIAGNOSIS';
 }
 
@@ -209,8 +218,10 @@ export function WorkshopView() {
     rejected: boolean;
     changeOrder?: WorkshopChangeOrder;
   } | null>(null);
-  const [emailTicket, setEmailTicket] = useState<WorkshopTicket | null>(null);
+  const [quoteShareTicket, setQuoteShareTicket] = useState<WorkshopTicket | null>(null);
   const [invoiceEmailTicket, setInvoiceEmailTicket] = useState<WorkshopTicket | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<WorkshopTicket | null>(null);
+  const [quoteRevisionCandidate, setQuoteRevisionCandidate] = useState<WorkshopTicket | null>(null);
   const observedInvoiceRef = useRef<{ ticketId: string; invoiceId: string | null } | null>(null);
 
   const customers = useQuery({
@@ -248,7 +259,6 @@ export function WorkshopView() {
   const billingTicket = editingTicket
     ? (tickets.data?.find((ticket) => ticket.id === editingTicket.id) ?? editingTicket)
     : null;
-  const approvalBlocker = billingTicket ? workshopQuoteApprovalBlocker(billingTicket) : null;
   const changeOrders = useQuery({
     queryKey: ['workshop-change-orders', session?.tenantId, editingTicket?.id],
     queryFn: () =>
@@ -291,8 +301,8 @@ export function WorkshopView() {
     const invoiceId = billingTicket.salesOrder?.invoice?.id ?? null;
     const previous = observedInvoiceRef.current;
     if (previous?.ticketId === billingTicket.id && !previous.invoiceId && invoiceId) {
-      toast.success('Factura emitida: la orden puede pasar a Reparación', {
-        description: `${billingTicket.ticketNumber} ya fue facturada en Caja. Usa “Iniciar reparación” para continuar.`,
+      toast.success('Factura emitida y orden entregada', {
+        description: `${billingTicket.ticketNumber} fue facturada en Caja y su proceso quedó completado.`,
         duration: 7000,
       });
     }
@@ -344,11 +354,14 @@ export function WorkshopView() {
         if (source.slice(0, 10) !== dateFilter) return false;
       }
       if (kpiFilter === 'ALL') return true;
-      if (kpiFilter === 'DIAGNOSIS') return ticket.status === 'RECEIVED' || (ticket.status === 'DIAGNOSIS' && !ticket.diagnosis);
-      if (kpiFilter === 'TO_QUOTE') return ticket.status === 'DIAGNOSIS' && Boolean(ticket.diagnosis);
+      if (kpiFilter === 'DIAGNOSIS')
+        return ticket.status === 'RECEIVED' || (ticket.status === 'DIAGNOSIS' && !ticket.diagnosis);
+      if (kpiFilter === 'TO_QUOTE')
+        return ticket.status === 'DIAGNOSIS' && Boolean(ticket.diagnosis);
       if (kpiFilter === 'AWAITING') return ticket.status === 'AWAITING_APPROVAL';
-      if (kpiFilter === 'REPAIR') return ticket.status === 'IN_PROGRESS';
-      return ticket.status === 'READY_FOR_DELIVERY';
+      if (kpiFilter === 'BILLING')
+        return ['APPROVED', 'IN_PROGRESS', 'READY_FOR_DELIVERY'].includes(ticket.status);
+      return ticket.status === 'DELIVERED';
     });
     return [...byStatus].sort((first, second) => {
       const firstDate =
@@ -418,9 +431,7 @@ export function WorkshopView() {
         customerId: ticketForm.customerId,
         vehicleId: ticketForm.vehicleId,
         complaint: ticketForm.complaint,
-        priority: ticketForm.priority,
         diagnosis: ticketForm.diagnosis || undefined,
-        internalNotes: ticketForm.internalNotes || undefined,
         customerNotes: ticketForm.customerNotes || undefined,
         promisedAt: ticketForm.promisedAt || undefined,
         mechanicIds: ticketForm.mechanicIds,
@@ -503,9 +514,7 @@ export function WorkshopView() {
       ticketId: string;
       payload: {
         diagnosis?: string;
-        internalNotes?: string;
         customerNotes?: string;
-        priority?: WorkshopTicketPriority;
         promisedAt?: string;
         mechanicIds?: string[];
       };
@@ -520,6 +529,39 @@ export function WorkshopView() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'No se pudo actualizar el ticket.'),
+  });
+
+  const deleteTicketMutation = useMutation({
+    mutationFn: (ticket: WorkshopTicket) => {
+      if (!session) throw new Error('Sesión requerida.');
+      return deleteWorkshopTicket(session.tenantId, session.accessToken, ticket.id);
+    },
+    onSuccess: async (deleted) => {
+      setEditingTicket((current) => (current?.id === deleted.id ? null : current));
+      setDeleteCandidate(null);
+      toast.success(`Expediente ${deleted.ticketNumber} eliminado`);
+      await invalidateWorkshop();
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'No se pudo eliminar el expediente.'),
+  });
+
+  const reviseQuoteMutation = useMutation({
+    mutationFn: (ticket: WorkshopTicket) => {
+      if (!session) throw new Error('Sesión requerida.');
+      return reviseWorkshopQuote(session.tenantId, session.accessToken, ticket.id);
+    },
+    onSuccess: async (ticket) => {
+      setQuoteRevisionCandidate(null);
+      setEditingTicket(ticket);
+      setActiveTicketStage('QUOTE');
+      toast.success('Cotización habilitada para edición', {
+        description: 'Al enviarla nuevamente se creará una versión nueva.',
+      });
+      await invalidateWorkshop();
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'No se pudo editar la cotización.'),
   });
 
   const approvalMutation = useMutation({
@@ -537,6 +579,9 @@ export function WorkshopView() {
       toast.success('Respuesta del cliente registrada');
       setAuthorization(null);
       setEditingTicket((current) => (current?.id === ticket.id ? ticket : current));
+      if (['APPROVED', 'PARTIALLY_APPROVED'].includes(ticket.approvalStatus)) {
+        setActiveTicketStage('BILLING');
+      }
       await invalidateWorkshop();
     },
     onError: (error) =>
@@ -675,7 +720,7 @@ export function WorkshopView() {
     onSuccess: async (order) => {
       toast.success(`Enviada a Caja: ${order.orderNumber}`, {
         description:
-          'La orden ya aparece en pendientes de cobro. Cuando Caja emita la factura, podrás iniciar la reparación.',
+          'La orden ya aparece en pendientes de cobro. Al emitir la factura quedará completada y entregada.',
         duration: 7000,
       });
       await invalidateWorkshop();
@@ -808,7 +853,7 @@ export function WorkshopView() {
   }
 
   const ticketRowActions = {
-    pending: advanceMutation.isPending,
+    pending: advanceMutation.isPending || deleteTicketMutation.isPending,
     onAdvance: (id: string, status: WorkshopTicketStatus) => advanceMutation.mutate({ id, status }),
     onEdit: (ticket: WorkshopTicket) => setEditingTicket(ticket),
     onApproval: (
@@ -824,6 +869,7 @@ export function WorkshopView() {
         ticketId: ticket.id,
         electronicInvoiceRequested: false,
       }),
+    onDelete: (ticket: WorkshopTicket) => setDeleteCandidate(ticket),
   };
 
   const workspaceCopy = {
@@ -879,13 +925,11 @@ export function WorkshopView() {
             'Cotización',
             'Aprobación',
             'Facturación',
-            'Reparación',
-            'Listo',
             'Entregado',
           ].map((step, index) => (
             <div key={step} className="flex shrink-0 items-center">
               <span className="rounded-lg px-2.5 py-1.5 font-medium text-foreground">{step}</span>
-              {index < 8 ? <ChevronRight className="h-4 w-4 text-border" /> : null}
+              {index < 6 ? <ChevronRight className="h-4 w-4 text-border" /> : null}
             </div>
           ))}
         </div>
@@ -895,7 +939,10 @@ export function WorkshopView() {
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
           <OperationalMetric
             label="Órdenes activas"
-            value={allTickets.filter((ticket) => !['DELIVERED', 'CANCELLED'].includes(ticket.status)).length}
+            value={
+              allTickets.filter((ticket) => !['DELIVERED', 'CANCELLED'].includes(ticket.status))
+                .length
+            }
             icon={Wrench}
             tone="blue"
             selected={kpiFilter === 'ALL'}
@@ -903,7 +950,13 @@ export function WorkshopView() {
           />
           <OperationalMetric
             label="En diagnóstico"
-            value={allTickets.filter((ticket) => ticket.status === 'RECEIVED' || (ticket.status === 'DIAGNOSIS' && !ticket.diagnosis)).length}
+            value={
+              allTickets.filter(
+                (ticket) =>
+                  ticket.status === 'RECEIVED' ||
+                  (ticket.status === 'DIAGNOSIS' && !ticket.diagnosis),
+              ).length
+            }
             icon={Car}
             tone="slate"
             selected={kpiFilter === 'DIAGNOSIS'}
@@ -911,7 +964,11 @@ export function WorkshopView() {
           />
           <OperationalMetric
             label="Por cotizar"
-            value={allTickets.filter((ticket) => ticket.status === 'DIAGNOSIS' && Boolean(ticket.diagnosis)).length}
+            value={
+              allTickets.filter(
+                (ticket) => ticket.status === 'DIAGNOSIS' && Boolean(ticket.diagnosis),
+              ).length
+            }
             icon={FileText}
             tone="amber"
             selected={kpiFilter === 'TO_QUOTE'}
@@ -926,20 +983,24 @@ export function WorkshopView() {
             onClick={() => setKpiFilter('AWAITING')}
           />
           <OperationalMetric
-            label="En reparación"
-            value={allTickets.filter((ticket) => ticket.status === 'IN_PROGRESS').length}
-            icon={Wrench}
+            label="Por facturar"
+            value={
+              allTickets.filter((ticket) =>
+                ['APPROVED', 'IN_PROGRESS', 'READY_FOR_DELIVERY'].includes(ticket.status),
+              ).length
+            }
+            icon={Receipt}
             tone="slate"
-            selected={kpiFilter === 'REPAIR'}
-            onClick={() => setKpiFilter('REPAIR')}
+            selected={kpiFilter === 'BILLING'}
+            onClick={() => setKpiFilter('BILLING')}
           />
           <OperationalMetric
-            label="Listas para entrega"
-            value={allTickets.filter((ticket) => ticket.status === 'READY_FOR_DELIVERY').length}
+            label="Entregadas"
+            value={allTickets.filter((ticket) => ticket.status === 'DELIVERED').length}
             icon={CheckCircle2}
             tone="green"
-            selected={kpiFilter === 'READY'}
-            onClick={() => setKpiFilter('READY')}
+            selected={kpiFilter === 'DELIVERED'}
+            onClick={() => setKpiFilter('DELIVERED')}
           />
         </div>
       ) : null}
@@ -958,12 +1019,16 @@ export function WorkshopView() {
           <>
             <select
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as WorkshopTicketStatus | 'ALL')}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as WorkshopTicketStatus | 'ALL')
+              }
               className="h-10 rounded-md border border-input bg-card px-3 text-sm"
             >
               <option value="ALL">Todos los estados</option>
               {Object.entries(statusLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </select>
             <select
@@ -978,8 +1043,19 @@ export function WorkshopView() {
                 </option>
               ))}
             </select>
-            <Input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} aria-label="Filtrar por fecha" />
-            <Button type="button" variant="outline" onClick={() => setSortMode((current) => current === 'PROMISED_AT' ? 'OPENED_AT' : 'PROMISED_AT')}>
+            <Input
+              type="date"
+              value={dateFilter}
+              onChange={(event) => setDateFilter(event.target.value)}
+              aria-label="Filtrar por fecha"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setSortMode((current) => (current === 'PROMISED_AT' ? 'OPENED_AT' : 'PROMISED_AT'))
+              }
+            >
               <SlidersHorizontal className="h-4 w-4" /> Más filtros
             </Button>
           </>
@@ -1029,203 +1105,209 @@ export function WorkshopView() {
           />
         </WorkOrderCreateDialog>
       ) : null}
-      {editingTicket && billingTicket ? createPortal(
-        <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-slate-950/45 p-2 backdrop-blur-[2px] sm:p-3 lg:p-4">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Expediente ${editingTicket.ticketNumber}`}
-            className="flex h-[calc(100dvh-1rem)] max-h-[64rem] w-[calc(100vw-1rem)] max-w-[92rem] flex-col overflow-hidden rounded-xl border bg-slate-50 shadow-2xl sm:h-[94dvh] sm:w-[94vw]"
-          >
-            <header className="shrink-0 border-b bg-white px-4 py-3 sm:px-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl font-semibold tracking-tight">{editingTicket.ticketNumber}</h2>
-                    <TicketSoftBadge status={editingTicket.status} />
-                  </div>
-                  <p className="mt-1 truncate text-sm font-medium">
-                    {editingTicket.vehicle.licensePlate ?? 'Sin placa'} · {editingTicket.vehicle.make}{' '}
-                    {editingTicket.vehicle.model} {editingTicket.vehicle.year ?? ''}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {editingTicket.customer.name} · {editingTicket.customer.phone ?? 'Sin teléfono'} · Promesa:{' '}
-                    {formatWorkshopTime(editingTicket.promisedAt)}
-                  </p>
-                </div>
-                <Button type="button" size="icon" variant="ghost" onClick={() => setEditingTicket(null)} aria-label="Cerrar expediente">
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
-              <WorkOrderStageNav active={activeTicketStage} onChange={setActiveTicketStage} />
-            </header>
-
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-4">
-              <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_16rem] xl:grid-cols-[minmax(0,1fr)_18rem]">
-                <main className="min-w-0 space-y-4">
-                  {(activeTicketStage === 'DIAGNOSIS' || activeTicketStage === 'QUOTE' || activeTicketStage === 'REPAIR') ? (
-                    <TicketEditor
-                      key={`${editingTicket.id}-${editingTicket.quoteVersions[0]?.id ?? 'draft'}-${activeTicketStage}`}
-                      ticket={editingTicket}
-                      stage={activeTicketStage}
-                      workspace
-                      formId="work-order-workspace-form"
-                      mechanics={mechanics.data ?? []}
-                      products={products.data ?? []}
-                      services={services.data ?? []}
-                      pending={updateTicketMutation.isPending || taskMutation.isPending || taskStatusMutation.isPending}
-                      onClose={() => setEditingTicket(null)}
-                      onSubmit={(payload) => updateTicketMutation.mutate({ ticketId: editingTicket.id, payload })}
-                      onCreateTask={(payload) => taskMutation.mutateAsync({ ticketId: editingTicket.id, payload })}
-                      onUpdateTask={(taskId, payload) => taskStatusMutation.mutateAsync({ ticketId: editingTicket.id, taskId, payload })}
-                    />
-                  ) : null}
-
-                  {activeTicketStage === 'DIAGNOSIS' ? (
-                    <InspectionEditor ticket={billingTicket} workspace />
-                  ) : null}
-
-                  {activeTicketStage === 'QUOTE' && ['APPROVED', 'PARTIALLY_APPROVED'].includes(editingTicket.approvalStatus) ? (
-                    <WorkshopBillingPanel
-                      ticket={billingTicket}
-                      pending={sendToCashierMutation.isPending}
-                      onSendToCashier={() =>
-                        sendToCashierMutation.mutate({
-                          ticketId: billingTicket.id,
-                          electronicInvoiceRequested: false,
-                        })
-                      }
-                      onEmailInvoice={() => setInvoiceEmailTicket(billingTicket)}
-                    />
-                  ) : null}
-
-                  {activeTicketStage === 'REPAIR' ? (
-                    <>
-                      <WorkshopPartsPanel
-                        ticket={editingTicket}
-                        canManage={hasPermission(session, 'inventory.workshop_parts')}
-                        pending={partMutation.isPending}
-                        onMove={async (operation) => {
-                          await partMutation.mutateAsync({ ticketId: editingTicket.id, ...operation });
-                        }}
-                      />
-                      <ChangeOrderPanel
-                        ticket={editingTicket}
-                        products={products.data ?? []}
-                        services={services.data ?? []}
-                        changeOrders={changeOrders.data ?? []}
-                        loading={changeOrders.isLoading}
-                        pending={createChangeOrderMutation.isPending || respondChangeOrderMutation.isPending}
-                        onCreate={async (payload) => {
-                          await createChangeOrderMutation.mutateAsync({ ticketId: editingTicket.id, payload });
-                        }}
-                        onRespond={(changeOrderId, status) => {
-                          const changeOrder = changeOrders.data?.find((item) => item.id === changeOrderId);
-                          if (changeOrder) setAuthorization({ ticket: editingTicket, changeOrder, rejected: status === 'REJECTED' });
-                        }}
-                      />
-                    </>
-                  ) : null}
-
-                  {activeTicketStage === 'DELIVERY' ? (
-                    <div className="space-y-4">
-                      <QualityCheckEditor ticket={billingTicket} />
-                      <WorkshopBillingPanel
-                        ticket={billingTicket}
-                        pending={sendToCashierMutation.isPending}
-                        onSendToCashier={() =>
-                          sendToCashierMutation.mutate({
-                            ticketId: billingTicket.id,
-                            electronicInvoiceRequested: false,
-                          })
-                        }
-                        onEmailInvoice={() => setInvoiceEmailTicket(billingTicket)}
-                      />
-                      <DeliveryEditor ticket={billingTicket} />
+      {editingTicket && billingTicket
+        ? createPortal(
+            <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-slate-950/45 p-2 backdrop-blur-[2px] sm:p-3 lg:p-4">
+              <section
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Expediente ${editingTicket.ticketNumber}`}
+                className="flex h-[calc(100dvh-1rem)] max-h-[64rem] w-[calc(100vw-1rem)] max-w-[92rem] flex-col overflow-hidden rounded-xl border bg-slate-50 shadow-2xl sm:h-[94dvh] sm:w-[94vw]"
+              >
+                <header className="shrink-0 border-b bg-white px-4 py-3 sm:px-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-xl font-semibold tracking-tight">
+                          {editingTicket.ticketNumber}
+                        </h2>
+                        <TicketSoftBadge status={editingTicket.status} />
+                      </div>
+                      <p className="mt-1 truncate text-sm font-medium">
+                        {editingTicket.vehicle.licensePlate ?? 'Sin placa'} ·{' '}
+                        {editingTicket.vehicle.make} {editingTicket.vehicle.model}{' '}
+                        {editingTicket.vehicle.year ?? ''}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {editingTicket.customer.name} ·{' '}
+                        {editingTicket.customer.phone ?? 'Sin teléfono'} · Promesa:{' '}
+                        {formatWorkshopTime(editingTicket.promisedAt)}
+                      </p>
                     </div>
-                  ) : null}
-                </main>
-                <WorkOrderSummary ticket={billingTicket} activeStage={activeTicketStage} />
-              </div>
-            </div>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditingTicket(null)}
+                      aria-label="Cerrar expediente"
+                    >
+                      <X className="h-5 w-5" />
+                    </Button>
+                  </div>
+                  <WorkOrderStageNav active={activeTicketStage} onChange={setActiveTicketStage} />
+                </header>
 
-            <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-white px-4 py-2.5 sm:px-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <Button type="button" variant="outline" onClick={() => setEditingTicket(null)}>Cerrar</Button>
-                {activeTicketStage === 'QUOTE' && editingTicket.status === 'DIAGNOSIS' && approvalBlocker ? (
-                  <p className="hidden max-w-sm text-xs text-amber-700 sm:block">{approvalBlocker}</p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap justify-end gap-2">
-                {activeTicketStage === 'QUOTE' && editingTicket.quoteVersions.length ? (
-                  <>
-                    <Button asChild type="button" variant="outline">
-                      <Link
-                        href={`/workshop/${editingTicket.id}/quote/print?autoPrint=1`}
-                        target="_blank"
-                        rel="noreferrer"
+                <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-4">
+                  <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_16rem] xl:grid-cols-[minmax(0,1fr)_18rem]">
+                    <main className="min-w-0 space-y-4">
+                      {activeTicketStage === 'DIAGNOSIS' || activeTicketStage === 'QUOTE' ? (
+                        <TicketEditor
+                          key={`${editingTicket.id}-${editingTicket.quoteVersions[0]?.id ?? 'draft'}-${activeTicketStage}`}
+                          ticket={editingTicket}
+                          stage={activeTicketStage}
+                          workspace
+                          formId="work-order-workspace-form"
+                          mechanics={mechanics.data ?? []}
+                          products={products.data ?? []}
+                          services={services.data ?? []}
+                          partsLoading={products.isFetching}
+                          servicesLoading={services.isFetching}
+                          pending={
+                            updateTicketMutation.isPending ||
+                            taskMutation.isPending ||
+                            taskStatusMutation.isPending
+                          }
+                          onClose={() => setEditingTicket(null)}
+                          onSubmit={async (payload, intent) => {
+                            try {
+                              const saved = await updateTicketMutation.mutateAsync({
+                                ticketId: editingTicket.id,
+                                payload,
+                              });
+                              if (intent === 'REQUEST_APPROVAL') {
+                                const blocker = workshopQuoteApprovalBlocker(saved);
+                                if (blocker) {
+                                  toast.error(blocker);
+                                  return;
+                                }
+                                await advanceMutation.mutateAsync({
+                                  id: saved.id,
+                                  status: 'AWAITING_APPROVAL',
+                                });
+                              }
+                            } catch {
+                              // Each mutation displays its own error and the draft remains visible.
+                            }
+                          }}
+                          onCreateTask={(payload) =>
+                            taskMutation.mutateAsync({ ticketId: editingTicket.id, payload })
+                          }
+                          onUpdateTask={(taskId, payload) =>
+                            taskStatusMutation.mutateAsync({
+                              ticketId: editingTicket.id,
+                              taskId,
+                              payload,
+                            })
+                          }
+                        />
+                      ) : null}
+
+                      {activeTicketStage === 'BILLING' ? (
+                        <WorkshopBillingPanel
+                          ticket={billingTicket}
+                          pending={sendToCashierMutation.isPending}
+                          onSendToCashier={() =>
+                            sendToCashierMutation.mutate({
+                              ticketId: billingTicket.id,
+                              electronicInvoiceRequested: false,
+                            })
+                          }
+                          onEmailInvoice={() => setInvoiceEmailTicket(billingTicket)}
+                        />
+                      ) : null}
+                    </main>
+                    <WorkOrderSummary ticket={billingTicket} activeStage={activeTicketStage} />
+                  </div>
+                </div>
+
+                <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-white px-4 py-2.5 sm:px-5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Button type="button" variant="outline" onClick={() => setEditingTicket(null)}>
+                      Cerrar
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {activeTicketStage === 'QUOTE' && editingTicket.quoteVersions.length ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setQuoteShareTicket(editingTicket)}
+                        >
+                          <Download className="h-4 w-4" /> Descargar PDF
+                        </Button>
+                      </>
+                    ) : null}
+                    {activeTicketStage === 'QUOTE' &&
+                    editingTicket.status === 'AWAITING_APPROVAL' &&
+                    hasPermission(session, 'quotes.create') ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setQuoteRevisionCandidate(editingTicket)}
                       >
-                        <Download className="h-4 w-4" /> Descargar PDF
-                      </Link>
-                    </Button>
-                    <Button type="button" variant="outline" onClick={() => setEmailTicket(editingTicket)}>
-                      <Mail className="h-4 w-4" /> Enviar cotización
-                    </Button>
-                  </>
-                ) : null}
-                {activeTicketStage === 'QUOTE' && editingTicket.status === 'AWAITING_APPROVAL' && hasPermission(session, 'quotes.record_approval') ? (
-                  <Button type="button" variant="outline" onClick={() => setAuthorization({ ticket: editingTicket, rejected: false })}>
-                    <CheckCircle2 className="h-4 w-4" /> Registrar aprobación
-                  </Button>
-                ) : null}
-                {activeTicketStage === 'DIAGNOSIS' || activeTicketStage === 'QUOTE' ? (
-                  <Button type="submit" form="work-order-workspace-form" variant="outline" disabled={updateTicketMutation.isPending}>
-                    {activeTicketStage === 'QUOTE' ? 'Guardar borrador' : 'Guardar cambios'}
-                  </Button>
-                ) : null}
-                {activeTicketStage === 'DIAGNOSIS' && ['RECEIVED', 'DIAGNOSIS'].includes(editingTicket.status) ? (
-                  <Button type="button" disabled={advanceMutation.isPending} onClick={() => {
-                    if (editingTicket.status === 'RECEIVED') {
-                      advanceMutation.mutate({ id: editingTicket.id, status: 'DIAGNOSIS' });
-                      return;
-                    }
-                    setActiveTicketStage('QUOTE');
-                  }}>
-                    {editingTicket.status === 'RECEIVED' ? 'Iniciar diagnóstico' : 'Continuar a cotización'} <ChevronRight className="h-4 w-4" />
-                  </Button>
-                ) : null}
-                {activeTicketStage === 'QUOTE' && editingTicket.status === 'DIAGNOSIS' ? (
-                  <Button
-                    type="button"
-                    disabled={
-                      advanceMutation.isPending ||
-                      Boolean(approvalBlocker)
-                    }
-                    title={approvalBlocker ?? 'Solicitar aprobación al cliente.'}
-                    onClick={() => advanceMutation.mutate({ id: editingTicket.id, status: 'AWAITING_APPROVAL' })}
-                  >
-                    Solicitar aprobación <ChevronRight className="h-4 w-4" />
-                  </Button>
-                ) : null}
-                {activeTicketStage === 'QUOTE' && billingTicket.status === 'APPROVED' && Boolean(billingTicket.salesOrder?.invoice) ? (
-                  <Button type="button" disabled={advanceMutation.isPending} onClick={() => {
-                    advanceMutation.mutate({ id: billingTicket.id, status: 'IN_PROGRESS' });
-                    setActiveTicketStage('REPAIR');
-                  }}>
-                    Iniciar reparación <Wrench className="h-4 w-4" />
-                  </Button>
-                ) : null}
-                {activeTicketStage === 'REPAIR' && editingTicket.status === 'IN_PROGRESS' ? (
-                  <Button type="button" disabled={advanceMutation.isPending} onClick={() => advanceMutation.mutate({ id: editingTicket.id, status: 'READY_FOR_DELIVERY' })}>
-                    Marcar como listo <CheckCircle2 className="h-4 w-4" />
-                  </Button>
-                ) : null}
-              </div>
-            </footer>
-          </section>
-        </div>,
-        document.body,
-      ) : null}
+                        <PencilLine className="h-4 w-4" /> Editar cotización
+                      </Button>
+                    ) : null}
+                    {activeTicketStage === 'QUOTE' &&
+                    editingTicket.status === 'AWAITING_APPROVAL' &&
+                    hasPermission(session, 'quotes.record_approval') ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setAuthorization({ ticket: editingTicket, rejected: false })}
+                      >
+                        <CheckCircle2 className="h-4 w-4" /> Registrar aprobación
+                      </Button>
+                    ) : null}
+                    {activeTicketStage === 'DIAGNOSIS' || activeTicketStage === 'QUOTE' ? (
+                      <Button
+                        type="submit"
+                        form="work-order-workspace-form"
+                        variant="outline"
+                        disabled={updateTicketMutation.isPending}
+                      >
+                        {activeTicketStage === 'QUOTE' ? 'Guardar borrador' : 'Guardar cambios'}
+                      </Button>
+                    ) : null}
+                    {activeTicketStage === 'DIAGNOSIS' &&
+                    ['RECEIVED', 'DIAGNOSIS'].includes(editingTicket.status) ? (
+                      <Button
+                        type="button"
+                        disabled={advanceMutation.isPending}
+                        onClick={() => {
+                          if (editingTicket.status === 'RECEIVED') {
+                            advanceMutation.mutate({ id: editingTicket.id, status: 'DIAGNOSIS' });
+                            return;
+                          }
+                          setActiveTicketStage('QUOTE');
+                        }}
+                      >
+                        {editingTicket.status === 'RECEIVED'
+                          ? 'Iniciar diagnóstico'
+                          : 'Continuar a cotización'}{' '}
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                    {activeTicketStage === 'QUOTE' && editingTicket.status === 'DIAGNOSIS' ? (
+                      <Button
+                        type="submit"
+                        form="work-order-workspace-form"
+                        name="workspace-action"
+                        value="REQUEST_APPROVAL"
+                        disabled={updateTicketMutation.isPending || advanceMutation.isPending}
+                        title="Guardar la cotización y enviarla a aprobación del cliente."
+                      >
+                        Enviar a aprobación del cliente <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                </footer>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
       {authorization ? (
         <WorkshopAuthorizationDialog
           key={authorization.changeOrder?.id ?? authorization.ticket.id}
@@ -1260,18 +1342,78 @@ export function WorkshopView() {
           }}
         />
       ) : null}
-      {emailTicket ? (
-        <DocumentEmailDialog
-          open
-          session={session}
-          kind="workshop-quotes"
-          documentId={emailTicket.id}
-          documentNumber={`${emailTicket.ticketNumber}-V${emailTicket.quoteVersions[0]?.version ?? 1}`}
-          customerName={emailTicket.customer.name}
-          defaultEmail={emailTicket.customer.email}
-          onClose={() => setEmailTicket(null)}
-        />
-      ) : null}
+      <ActionDialog
+        open={Boolean(quoteShareTicket)}
+        size="sm"
+        title="Compartir cotización"
+        description="Elige si deseas descargar el PDF o preparar su envío por WhatsApp."
+        icon={<MessageCircle className="h-5 w-5" />}
+        confirmLabel="Abrir WhatsApp"
+        cancelLabel="Cancelar"
+        onClose={() => setQuoteShareTicket(null)}
+        onConfirm={() => {
+          if (!quoteShareTicket) return;
+
+          const version = quoteShareTicket.quoteVersions[0]?.version ?? 1;
+          const documentNumber = `${quoteShareTicket.ticketNumber}-V${version}`;
+          const vehicle = [
+            quoteShareTicket.vehicle.make,
+            quoteShareTicket.vehicle.model,
+            quoteShareTicket.vehicle.year,
+          ]
+            .filter(Boolean)
+            .join(' ');
+          const digits = (quoteShareTicket.customer.phone ?? '').replace(/\D/g, '');
+          const whatsappPhone = digits.length === 10 ? `1${digits}` : digits;
+          const message = encodeURIComponent(
+            `Hola ${quoteShareTicket.customer.name}, aquí está su cotización ${documentNumber} de ${brand.name} para su ${vehicle}. El total es ${formatWorkshopCurrency(quoteShareTicket.total)}. Quedamos atentos a su confirmación.`,
+          );
+          const whatsappUrl = whatsappPhone
+            ? `https://wa.me/${whatsappPhone}?text=${message}`
+            : `https://wa.me/?text=${message}`;
+
+          const whatsappWindow = window.open(whatsappUrl, '_blank');
+          if (whatsappWindow) {
+            whatsappWindow.opener = null;
+          } else {
+            window.location.assign(whatsappUrl);
+          }
+          setQuoteShareTicket(null);
+        }}
+      >
+        {quoteShareTicket ? (
+          <div className="space-y-3">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <p className="font-semibold text-foreground">
+                {quoteShareTicket.ticketNumber}-V
+                {quoteShareTicket.quoteVersions[0]?.version ?? 1}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {quoteShareTicket.customer.name} · {formatWorkshopCurrency(quoteShareTicket.total)}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 w-full justify-center"
+              onClick={() => {
+                window.open(
+                  `/workshop/${quoteShareTicket.id}/quote/print?autoPrint=1`,
+                  '_blank',
+                  'noopener,noreferrer',
+                );
+                setQuoteShareTicket(null);
+              }}
+            >
+              <Download className="h-4 w-4" /> Descargar PDF
+            </Button>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Primero descarga el PDF. Después pulsa Abrir WhatsApp y adjunta el archivo descargado
+              en el chat; el mensaje se cargará automáticamente.
+            </p>
+          </div>
+        ) : null}
+      </ActionDialog>
       {invoiceEmailTicket?.salesOrder?.invoice ? (
         <DocumentEmailDialog
           open
@@ -1284,6 +1426,81 @@ export function WorkshopView() {
           onClose={() => setInvoiceEmailTicket(null)}
         />
       ) : null}
+      <ActionDialog
+        open={Boolean(quoteRevisionCandidate)}
+        tone="warning"
+        size="sm"
+        title="Editar cotización"
+        description="La versión enviada dejará de esperar respuesta y la cotización volverá a modo edición."
+        confirmLabel="Continuar y editar"
+        cancelLabel="Mantener pendiente"
+        isPending={reviseQuoteMutation.isPending}
+        onClose={() => {
+          if (!reviseQuoteMutation.isPending) setQuoteRevisionCandidate(null);
+        }}
+        onConfirm={() => {
+          if (quoteRevisionCandidate) reviseQuoteMutation.mutate(quoteRevisionCandidate);
+        }}
+        summary={
+          quoteRevisionCandidate ? (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-semibold text-foreground">
+                    {quoteRevisionCandidate.ticketNumber} · Cotización v
+                    {quoteRevisionCandidate.quoteVersions[0]?.version ?? 1}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {quoteRevisionCandidate.customer.name} ·{' '}
+                    {formatWorkshopCurrency(quoteRevisionCandidate.total)}
+                  </p>
+                </div>
+                <Badge variant="warning">Pendiente</Badge>
+              </div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                La versión actual se conservará en el historial. Cuando vuelvas a enviarla al
+                cliente se generará automáticamente la siguiente versión.
+              </div>
+            </div>
+          ) : null
+        }
+      />
+      <ActionDialog
+        open={Boolean(deleteCandidate)}
+        tone="danger"
+        size="sm"
+        title="Eliminar expediente de orden"
+        description="Confirma que deseas eliminar permanentemente esta orden de trabajo."
+        confirmLabel="Eliminar expediente"
+        cancelLabel="Conservar orden"
+        isPending={deleteTicketMutation.isPending}
+        onClose={() => {
+          if (!deleteTicketMutation.isPending) setDeleteCandidate(null);
+        }}
+        onConfirm={() => {
+          if (deleteCandidate) deleteTicketMutation.mutate(deleteCandidate);
+        }}
+        summary={
+          deleteCandidate ? (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-semibold text-foreground">{deleteCandidate.ticketNumber}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {deleteCandidate.customer.name} · {deleteCandidate.vehicle.make}{' '}
+                    {deleteCandidate.vehicle.model}
+                  </p>
+                </div>
+                <TicketSoftBadge status={deleteCandidate.status} />
+              </div>
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-800">
+                Esta acción no se puede deshacer. Las órdenes con facturación, Caja o movimientos de
+                inventario no pueden eliminarse.
+              </div>
+            </div>
+          ) : null
+        }
+      />
       {workspaceMode === 'orders' ? (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="space-y-4">
@@ -1298,18 +1515,38 @@ export function WorkshopView() {
                 {visibleTickets.length ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
                     <span>
-                      Mostrando {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, visibleTickets.length)} de {visibleTickets.length}
+                      Mostrando {(currentPage - 1) * pageSize + 1}–
+                      {Math.min(currentPage * pageSize, visibleTickets.length)} de{' '}
+                      {visibleTickets.length}
                     </span>
                     <div className="flex items-center gap-2">
-                      <Button type="button" size="icon" variant="outline" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        disabled={currentPage <= 1}
+                        onClick={() => setPage((value) => Math.max(1, value - 1))}
+                      >
                         <ChevronLeft className="h-4 w-4" />
                       </Button>
-                      <span className="rounded-md bg-slate-950 px-3 py-2 font-semibold text-white">{currentPage}</span>
+                      <span className="rounded-md bg-slate-950 px-3 py-2 font-semibold text-white">
+                        {currentPage}
+                      </span>
                       <span>de {pageCount}</span>
-                      <Button type="button" size="icon" variant="outline" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        disabled={currentPage >= pageCount}
+                        onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                      >
                         <ChevronRight className="h-4 w-4" />
                       </Button>
-                      <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-9 rounded-md border bg-card px-2">
+                      <select
+                        value={pageSize}
+                        onChange={(event) => setPageSize(Number(event.target.value))}
+                        className="h-9 rounded-md border bg-card px-2"
+                      >
                         <option value={8}>8 por página</option>
                         <option value={12}>12 por página</option>
                         <option value={20}>20 por página</option>
@@ -1351,16 +1588,29 @@ const stageMeta: Array<{
   description: string;
   icon: LucideIcon;
 }> = [
-  { id: 'DIAGNOSIS', label: 'Diagnóstico', description: 'Recepción y evaluación', icon: ClipboardCheck },
+  {
+    id: 'DIAGNOSIS',
+    label: 'Diagnóstico',
+    description: 'Recepción y evaluación',
+    icon: ClipboardCheck,
+  },
   { id: 'QUOTE', label: 'Cotización', description: 'Servicios y repuestos', icon: FileText },
-  { id: 'REPAIR', label: 'Reparación', description: 'Trabajos aprobados', icon: Wrench },
-  { id: 'DELIVERY', label: 'Entrega', description: 'Facturación y cierre', icon: CheckCircle2 },
+  { id: 'BILLING', label: 'Facturación', description: 'Cobro y cierre', icon: Receipt },
 ];
 
-function WorkOrderStageNav({ active, onChange }: { active: WorkOrderStage; onChange: (stage: WorkOrderStage) => void }) {
+function WorkOrderStageNav({
+  active,
+  onChange,
+}: {
+  active: WorkOrderStage;
+  onChange: (stage: WorkOrderStage) => void;
+}) {
   const activeIndex = stageMeta.findIndex((stage) => stage.id === active);
   return (
-    <nav className="mt-3 grid overflow-hidden rounded-xl border bg-slate-50 sm:grid-cols-4" aria-label="Etapas de la orden">
+    <nav
+      className="mt-3 grid overflow-hidden rounded-xl border bg-slate-50 sm:grid-cols-3"
+      aria-label="Etapas de la orden"
+    >
       {stageMeta.map((stage, index) => {
         const Icon = stage.icon;
         const selected = stage.id === active;
@@ -1371,7 +1621,9 @@ function WorkOrderStageNav({ active, onChange }: { active: WorkOrderStage; onCha
             onClick={() => onChange(stage.id)}
             className={`flex min-h-14 items-center gap-3 border-b px-4 py-2.5 text-left transition last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 ${selected ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground hover:bg-white/70'}`}
           >
-            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${selected ? 'bg-primary text-primary-foreground' : index < activeIndex ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
+            <span
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${selected ? 'bg-primary text-primary-foreground' : index < activeIndex ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}
+            >
               {index < activeIndex ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
             </span>
             <span className="min-w-0">
@@ -1396,74 +1648,71 @@ function TicketSoftBadge({ status }: { status: WorkshopTicketStatus }) {
     DELIVERED: 'bg-slate-100 text-slate-700',
     CANCELLED: 'bg-rose-100 text-rose-800',
   };
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${tones[status]}`}>{statusLabels[status]}</span>;
+  return (
+    <span
+      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${tones[status]}`}
+    >
+      {statusLabels[status]}
+    </span>
+  );
 }
 
-function WorkOrderSummary({ ticket, activeStage }: { ticket: WorkshopTicket; activeStage: WorkOrderStage }) {
+function WorkOrderSummary({
+  ticket,
+  activeStage,
+}: {
+  ticket: WorkshopTicket;
+  activeStage: WorkOrderStage;
+}) {
   const mechanic = mechanicName(ticket);
   const activeIndex = stageMeta.findIndex((stage) => stage.id === activeStage);
-  const [showAllHistory, setShowAllHistory] = useState(false);
-  const historyEvents = showAllHistory ? ticket.statusEvents : ticket.statusEvents.slice(0, 5);
-  const historyTitle = (event: WorkshopTicket['statusEvents'][number]) => {
-    if (!event.fromStatus) return 'Orden de trabajo creada';
-    if (event.toStatus === 'RECEIVED') return 'Vehículo recibido';
-    return `Estado cambiado a ${statusLabels[event.toStatus]}`;
-  };
+  const progress = Math.round(((activeIndex + 1) / stageMeta.length) * 100);
   return (
     <aside className="min-w-0 space-y-3 lg:sticky lg:top-0">
       <section className="rounded-xl border bg-white p-4 shadow-sm">
-        <h3 className="flex items-center gap-2 text-sm font-semibold"><ClipboardCheck className="h-4 w-4" /> Resumen de la orden</h3>
+        <h3 className="flex items-center gap-2 text-sm font-semibold">
+          <ClipboardCheck className="h-4 w-4" /> Resumen de la orden
+        </h3>
         <div className="mt-4 flex items-center gap-3">
           <VehicleIllustration type={ticket.vehicle.vehicleType} className="h-16 w-24 shrink-0" />
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{ticket.vehicle.make} {ticket.vehicle.model}</p>
+            <p className="truncate text-sm font-semibold">
+              {ticket.vehicle.make} {ticket.vehicle.model}
+            </p>
             <p className="text-xs font-medium">{ticket.vehicle.licensePlate ?? 'Sin placa'}</p>
             <p className="mt-1 truncate text-xs text-muted-foreground">{ticket.customer.name}</p>
           </div>
         </div>
         <dl className="mt-4 space-y-3 border-t pt-4 text-xs">
-          <div className="flex items-center justify-between gap-3"><dt className="text-muted-foreground">Estado actual</dt><dd><TicketSoftBadge status={ticket.status} /></dd></div>
-          <div className="flex items-center justify-between gap-3"><dt className="text-muted-foreground">Mecánico</dt><dd className="flex items-center gap-2 font-medium"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold">{initials(mechanic)}</span>{mechanic}</dd></div>
-          <div className="flex items-center justify-between gap-3"><dt className="text-muted-foreground">Total actual</dt><dd className="text-sm font-semibold">{formatWorkshopCurrency(ticket.total)}</dd></div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Estado actual</dt>
+            <dd>
+              <TicketSoftBadge status={ticket.status} />
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Mecánico</dt>
+            <dd className="flex items-center gap-2 font-medium">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold">
+                {initials(mechanic)}
+              </span>
+              {mechanic}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Total actual</dt>
+            <dd className="text-sm font-semibold">{formatWorkshopCurrency(ticket.total)}</dd>
+          </div>
         </dl>
       </section>
       <section className="rounded-xl border bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between text-xs"><span className="font-semibold">Progreso de la orden</span><span>{Math.max(25, (activeIndex + 1) * 25)}%</span></div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(25, (activeIndex + 1) * 25)}%` }} /></div>
-      </section>
-      <section className="rounded-xl border bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="flex items-center gap-2 text-sm font-semibold"><FileText className="h-4 w-4" /> Historial reciente</h3>
-          {ticket.statusEvents.length ? (
-            <button type="button" onClick={() => setShowAllHistory((value) => !value)} className="text-[11px] font-medium text-primary hover:underline">
-              {showAllHistory ? 'Ver menos' : 'Ver todo'}
-            </button>
-          ) : null}
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-semibold">Progreso de la orden</span>
+          <span>{progress}%</span>
         </div>
-        {historyEvents.length ? (
-          <div className="relative mt-4 space-y-0 pl-1">
-            <span aria-hidden className="absolute bottom-3 left-[0.45rem] top-2 w-px bg-slate-200" />
-            {historyEvents.map((event) => (
-              <div key={event.id} className="relative flex gap-3 pb-4 last:pb-0">
-                <span aria-hidden className="relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border-2 border-white bg-slate-400 ring-1 ring-slate-200" />
-                <div className="min-w-0 text-xs">
-                  <p className="text-[10px] leading-4 text-muted-foreground">
-                    {new Date(event.createdAt).toLocaleString('es-DO', {
-                      day: '2-digit',
-                      month: 'short',
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                  <p className="truncate font-medium leading-4 text-foreground">{historyTitle(event)}</p>
-                  <p className="truncate text-[10px] leading-4 text-muted-foreground">{event.createdBy.name}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-xs text-muted-foreground">Sin movimientos registrados.</p>
-        )}
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
+        </div>
       </section>
     </aside>
   );
@@ -1491,7 +1740,12 @@ function OperationalMetric({
     green: 'bg-emerald-100 text-emerald-700',
   };
   return (
-    <button type="button" onClick={onClick} aria-pressed={selected} className={`flex items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${selected ? 'border-primary/40 ring-2 ring-primary/10' : 'border-border'}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`flex items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${selected ? 'border-primary/40 ring-2 ring-primary/10' : 'border-border'}`}
+    >
       <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${tones[tone]}`}>
         <Icon className="h-4 w-4" />
       </span>
@@ -1608,6 +1862,7 @@ function WorkOrderList({
   onApproval,
   approvalPending,
   onSendToCashier,
+  onDelete,
 }: {
   tickets: WorkshopTicket[];
   pending: boolean;
@@ -1619,6 +1874,7 @@ function WorkOrderList({
   ) => void;
   approvalPending: boolean;
   onSendToCashier: (ticket: WorkshopTicket) => void;
+  onDelete: (ticket: WorkshopTicket) => void;
 }) {
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -1656,6 +1912,7 @@ function WorkOrderList({
                     onApproval={onApproval}
                     approvalPending={approvalPending}
                     onSendToCashier={onSendToCashier}
+                    onDelete={onDelete}
                   />
                 ))}
               </tbody>
@@ -1672,6 +1929,7 @@ function WorkOrderList({
                 onApproval={(status) => onApproval(ticket.id, status)}
                 approvalPending={approvalPending}
                 onSendToCashier={() => onSendToCashier(ticket)}
+                onDelete={() => onDelete(ticket)}
               />
             ))}
           </div>
@@ -1683,7 +1941,9 @@ function WorkOrderList({
 
 function WorkOrderTableRow({
   ticket,
+  pending,
   onEdit,
+  onDelete,
 }: {
   ticket: WorkshopTicket;
   pending: boolean;
@@ -1695,8 +1955,10 @@ function WorkOrderTableRow({
   ) => void;
   approvalPending: boolean;
   onSendToCashier: (ticket: WorkshopTicket) => void;
+  onDelete?: (ticket: WorkshopTicket) => void;
 }) {
   const mechanic = mechanicName(ticket);
+  const session = useCurrentSession();
   return (
     <tr
       className="cursor-pointer transition hover:bg-muted/35 focus-within:bg-muted/35"
@@ -1705,7 +1967,10 @@ function WorkOrderTableRow({
       <td className="px-4 py-3 align-top">
         <button
           type="button"
-          onClick={(event) => { event.stopPropagation(); onEdit(ticket); }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit(ticket);
+          }}
           className="text-left font-semibold hover:text-primary"
         >
           {ticket.ticketNumber}
@@ -1734,7 +1999,9 @@ function WorkOrderTableRow({
       </td>
       <td className="px-3 py-3 align-top text-sm">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-700">{initials(mechanic)}</span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-700">
+            {initials(mechanic)}
+          </span>
           <span className="max-w-24 truncate">{mechanic}</span>
         </div>
       </td>
@@ -1746,70 +2013,180 @@ function WorkOrderTableRow({
         RD${Number(ticket.total).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
       </td>
       <td className="px-2 py-2 text-right align-top" onClick={(event) => event.stopPropagation()}>
-        <Button size="icon" variant="ghost" onClick={() => onEdit(ticket)} title="Abrir expediente">
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+        <div className="flex justify-end gap-1">
+          {onDelete &&
+          session?.role !== 'ORDER_TAKER' &&
+          hasPermission(session, 'workorders.cancel') ? (
+            <Button
+              size="icon"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => onDelete(ticket)}
+              title="Eliminar expediente"
+              aria-label={`Eliminar ${ticket.ticketNumber}`}
+              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          ) : null}
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => onEdit(ticket)}
+            title="Abrir expediente"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </td>
     </tr>
   );
 }
 
-function TodayRail({ tickets, onOpen }: { tickets: WorkshopTicket[]; onOpen: (ticket: WorkshopTicket) => void }) {
+function TodayRail({
+  tickets,
+  onOpen,
+}: {
+  tickets: WorkshopTicket[];
+  onOpen: (ticket: WorkshopTicket) => void;
+}) {
   const active = tickets.filter((ticket) => !['DELIVERED', 'CANCELLED'].includes(ticket.status));
   const promises = [...active]
     .filter((ticket) => ticket.promisedAt)
-    .sort((first, second) => new Date(first.promisedAt!).getTime() - new Date(second.promisedAt!).getTime())
+    .sort(
+      (first, second) =>
+        new Date(first.promisedAt!).getTime() - new Date(second.promisedAt!).getTime(),
+    )
     .slice(0, 4);
   const activity = tickets
     .flatMap((ticket) => ticket.statusEvents.map((event) => ({ ticket, event })))
-    .sort((first, second) => new Date(second.event.createdAt).getTime() - new Date(first.event.createdAt).getTime())
+    .sort(
+      (first, second) =>
+        new Date(second.event.createdAt).getTime() - new Date(first.event.createdAt).getTime(),
+    )
     .slice(0, 5);
   const summary = [
     ['Órdenes abiertas', active.length, ClipboardCheck, 'bg-blue-100 text-blue-700'],
-    ['En diagnóstico', tickets.filter((ticket) => ticket.status === 'RECEIVED' || (ticket.status === 'DIAGNOSIS' && !ticket.diagnosis)).length, Car, 'bg-slate-100 text-slate-700'],
-    ['Por cotizar', tickets.filter((ticket) => ticket.status === 'DIAGNOSIS' && Boolean(ticket.diagnosis)).length, FileText, 'bg-amber-100 text-amber-700'],
-    ['Esperando aprobación', tickets.filter((ticket) => ticket.status === 'AWAITING_APPROVAL').length, Clock3, 'bg-orange-100 text-orange-700'],
-    ['En reparación', tickets.filter((ticket) => ticket.status === 'IN_PROGRESS').length, Wrench, 'bg-violet-100 text-violet-700'],
-    ['Listas para entrega', tickets.filter((ticket) => ticket.status === 'READY_FOR_DELIVERY').length, CheckCircle2, 'bg-emerald-100 text-emerald-700'],
+    [
+      'En diagnóstico',
+      tickets.filter(
+        (ticket) =>
+          ticket.status === 'RECEIVED' || (ticket.status === 'DIAGNOSIS' && !ticket.diagnosis),
+      ).length,
+      Car,
+      'bg-slate-100 text-slate-700',
+    ],
+    [
+      'Por cotizar',
+      tickets.filter((ticket) => ticket.status === 'DIAGNOSIS' && Boolean(ticket.diagnosis)).length,
+      FileText,
+      'bg-amber-100 text-amber-700',
+    ],
+    [
+      'Esperando aprobación',
+      tickets.filter((ticket) => ticket.status === 'AWAITING_APPROVAL').length,
+      Clock3,
+      'bg-orange-100 text-orange-700',
+    ],
+    [
+      'Por facturar',
+      tickets.filter((ticket) =>
+        ['APPROVED', 'IN_PROGRESS', 'READY_FOR_DELIVERY'].includes(ticket.status),
+      ).length,
+      Receipt,
+      'bg-violet-100 text-violet-700',
+    ],
+    [
+      'Entregadas',
+      tickets.filter((ticket) => ticket.status === 'DELIVERED').length,
+      CheckCircle2,
+      'bg-emerald-100 text-emerald-700',
+    ],
   ] as const;
   return (
     <aside className="space-y-3">
       <section className="rounded-xl border border-border bg-card p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="h-4 w-4" /> Resumen del día</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{new Date().toLocaleDateString('es-DO', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <CalendarDays className="h-4 w-4" /> Resumen del día
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {new Date().toLocaleDateString('es-DO', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })}
+        </p>
         <div className="mt-4 space-y-2.5">
           {summary.map(([label, value, Icon, tone]) => (
             <div key={label} className="flex items-center gap-2 text-xs">
-              <span className={`flex h-6 w-6 items-center justify-center rounded-md ${tone}`}><Icon className="h-3.5 w-3.5" /></span>
-              <span className="text-muted-foreground">{label}</span><strong className="ml-auto text-foreground">{value}</strong>
+              <span className={`flex h-6 w-6 items-center justify-center rounded-md ${tone}`}>
+                <Icon className="h-3.5 w-3.5" />
+              </span>
+              <span className="text-muted-foreground">{label}</span>
+              <strong className="ml-auto text-foreground">{value}</strong>
             </div>
           ))}
         </div>
       </section>
       <section className="rounded-xl border border-border bg-card p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><Clock3 className="h-4 w-4 text-rose-500" /> Próximas promesas</h2>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <Clock3 className="h-4 w-4 text-rose-500" /> Próximas promesas
+        </h2>
         <div className="mt-3 divide-y">
           {promises.map((ticket) => (
-            <button key={ticket.id} type="button" onClick={() => onOpen(ticket)} className="flex w-full items-center gap-2 py-2.5 text-left text-xs">
-              <span className="w-14 shrink-0 font-semibold">{new Date(ticket.promisedAt!).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}</span>
+            <button
+              key={ticket.id}
+              type="button"
+              onClick={() => onOpen(ticket)}
+              className="flex w-full items-center gap-2 py-2.5 text-left text-xs"
+            >
+              <span className="w-14 shrink-0 font-semibold">
+                {new Date(ticket.promisedAt!).toLocaleTimeString('es-DO', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
               <Car className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 flex-1 truncate font-medium">{ticket.ticketNumber}</span>
               <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           ))}
-          {!promises.length ? <p className="py-3 text-xs text-muted-foreground">No hay fechas prometidas pendientes.</p> : null}
+          {!promises.length ? (
+            <p className="py-3 text-xs text-muted-foreground">
+              No hay fechas prometidas pendientes.
+            </p>
+          ) : null}
         </div>
       </section>
       <section className="rounded-xl border border-border bg-card p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><Gauge className="h-4 w-4 text-primary" /> Actividad reciente</h2>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <Gauge className="h-4 w-4 text-primary" /> Actividad reciente
+        </h2>
         <div className="mt-3 space-y-3">
           {activity.map(({ ticket, event }) => (
-            <button key={event.id} type="button" onClick={() => onOpen(ticket)} className="flex w-full gap-2 border-l-2 border-slate-200 pl-3 text-left text-xs">
-              <span className="w-14 shrink-0 text-muted-foreground">{new Date(event.createdAt).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}</span>
-              <span className="min-w-0"><strong className="block truncate">{statusLabels[event.toStatus]}</strong><span className="block truncate text-muted-foreground">{ticket.ticketNumber} · {ticket.customer.name}</span></span>
+            <button
+              key={event.id}
+              type="button"
+              onClick={() => onOpen(ticket)}
+              className="flex w-full gap-2 border-l-2 border-slate-200 pl-3 text-left text-xs"
+            >
+              <span className="w-14 shrink-0 text-muted-foreground">
+                {new Date(event.createdAt).toLocaleTimeString('es-DO', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate">{statusLabels[event.toStatus]}</strong>
+                <span className="block truncate text-muted-foreground">
+                  {ticket.ticketNumber} · {ticket.customer.name}
+                </span>
+              </span>
             </button>
           ))}
-          {!activity.length ? <p className="text-xs text-muted-foreground">Sin actividad reciente.</p> : null}
+          {!activity.length ? (
+            <p className="text-xs text-muted-foreground">Sin actividad reciente.</p>
+          ) : null}
         </div>
       </section>
     </aside>
@@ -2059,7 +2436,6 @@ function ReceptionInspector({
         <p className="mt-2 text-sm leading-6">{ticket.complaint}</p>
       </div>
       <ReceptionEditor ticket={ticket} />
-      <InspectionEditor ticket={ticket} />
       <QualityCheckEditor ticket={ticket} />
       <div className="mt-5">
         <WorkshopBillingPanel ticket={ticket} />
@@ -2094,18 +2470,11 @@ function ReceptionEditor({ ticket }: { ticket: WorkshopTicket }) {
     interiorCondition: '',
     warningLights: '',
     observations: '',
-    bay: '',
-    bayId: '',
     initialMechanicId: '',
   });
   const mechanics = useQuery({
     queryKey: ['workshop-mechanics', session?.tenantId],
     queryFn: () => getWorkshopMechanics(session!.tenantId, session!.accessToken),
-    enabled: Boolean(session),
-  });
-  const bays = useQuery({
-    queryKey: ['workshop-bays', session?.tenantId],
-    queryFn: () => getWorkshopBays(session!.tenantId, session!.accessToken),
     enabled: Boolean(session),
   });
   const reception = ticket.reception;
@@ -2125,8 +2494,6 @@ function ReceptionEditor({ ticket }: { ticket: WorkshopTicket }) {
       interiorCondition: reception?.interiorCondition ?? '',
       warningLights: reception?.warningLights ?? '',
       observations: reception?.observations ?? '',
-      bay: reception?.bay ?? '',
-      bayId: reception?.bayId ?? '',
       initialMechanicId: reception?.initialMechanicId ?? ticket.assignments[0]?.employee.id ?? '',
     });
     setOpen(false);
@@ -2164,8 +2531,6 @@ function ReceptionEditor({ ticket }: { ticket: WorkshopTicket }) {
       interiorCondition: form.interiorCondition || undefined,
       warningLights: form.warningLights || undefined,
       observations: form.observations || undefined,
-      bay: form.bay || undefined,
-      bayId: form.bayId || undefined,
       initialMechanicId: form.initialMechanicId || undefined,
     });
   }
@@ -2197,7 +2562,7 @@ function ReceptionEditor({ ticket }: { ticket: WorkshopTicket }) {
         <div className="mt-3 grid gap-2 rounded-lg bg-muted/40 p-3 text-xs">
           <p>
             <strong>{Number(reception.mileage).toLocaleString('es-DO')} km</strong> · Combustible:{' '}
-            {reception.fuelLevel ?? 'No registrado'} · Bahía: {reception.bay ?? 'Sin asignar'}
+            {reception.fuelLevel ?? 'No registrado'}
           </p>
           <p className="text-muted-foreground">
             Exterior: {reception.exteriorCondition ?? 'Sin observaciones'}
@@ -2235,29 +2600,6 @@ function ReceptionEditor({ ticket }: { ticket: WorkshopTicket }) {
                 <option value="1/2">1/2</option>
                 <option value="3/4">3/4</option>
                 <option value="Lleno">Lleno</option>
-              </select>
-            </Field>
-            <Field label="Bahía">
-              <select
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={form.bayId}
-                onChange={(event) => {
-                  const selected = (bays.data ?? []).find((bay) => bay.id === event.target.value);
-                  setForm((current) => ({
-                    ...current,
-                    bayId: event.target.value,
-                    bay: selected?.code ?? '',
-                  }));
-                }}
-              >
-                <option value="">Sin asignar</option>
-                {(bays.data ?? [])
-                  .filter((bay) => bay.status === 'AVAILABLE' || bay.id === reception?.bayId)
-                  .map((bay) => (
-                    <option key={bay.id} value={bay.id}>
-                      {bay.code} · {bay.name}
-                    </option>
-                  ))}
               </select>
             </Field>
           </div>
@@ -2353,19 +2695,14 @@ function ReceptionEditor({ ticket }: { ticket: WorkshopTicket }) {
 }
 
 const defaultInspectionItems = [
-  ['ENGINE_OIL', 'Aceite de motor'],
-  ['COOLANT', 'Refrigerante'],
-  ['FRONT_BRAKES', 'Frenos delanteros'],
-  ['REAR_BRAKES', 'Frenos traseros'],
-  ['SUSPENSION', 'Suspensión'],
-  ['STEERING', 'Dirección'],
-  ['TIRES', 'Neumáticos'],
-  ['BATTERY', 'Batería'],
-  ['LIGHTS', 'Luces'],
-  ['BELTS', 'Correas'],
-  ['AIR_CONDITIONING', 'Aire acondicionado'],
+  ['PARTS', 'Piezas y componentes'],
+  ['ENGINE', 'Motor'],
+  ['TRANSMISSION', 'Transmisión'],
+  ['COMPUTER', 'Computadora y diagnóstico electrónico'],
+  ['BRAKES', 'Sistema de frenos'],
+  ['SUSPENSION_STEERING', 'Suspensión y dirección'],
   ['ELECTRICAL', 'Sistema eléctrico'],
-  ['EXHAUST', 'Escape'],
+  ['BODY_INTERIOR', 'Carrocería e interior'],
 ] as const;
 
 function InspectionEditor({
@@ -2448,12 +2785,12 @@ function InspectionEditor({
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Inspección técnica
+            Inspección técnica <span className="font-normal text-muted-foreground">(opcional)</span>
           </p>
           <p className="mt-1 text-sm font-medium">
             {inspection
               ? `${inspection.items.length} puntos inspeccionados`
-              : 'Requerida antes de enviar el presupuesto a aprobación'}
+              : 'Clasificación general para apoyar la cotización'}
           </p>
         </div>
         {editable ? (
@@ -2477,7 +2814,8 @@ function InspectionEditor({
             {inspection.items.filter((item) => item.result === 'ATTENTION').length} con atención
           </span>
           <span className="rounded-full bg-rose-100 px-2.5 py-1 font-medium text-rose-800">
-            {inspection.items.filter((item) => item.result === 'REQUIRES_REPAIR').length} por reparar
+            {inspection.items.filter((item) => item.result === 'REQUIRES_REPAIR').length} por
+            reparar
           </span>
         </div>
       ) : null}
@@ -2526,11 +2864,17 @@ function InspectionEditor({
                     <p className="min-w-0 flex-1 text-sm font-medium">{item.label}</p>
                   )}
                   <div className="inline-flex rounded-md border bg-slate-50 p-0.5">
-                    {([
-                      ['GOOD', 'Bien', 'text-emerald-700 data-[active=true]:bg-emerald-100'],
-                      ['ATTENTION', 'Atención', 'text-amber-700 data-[active=true]:bg-amber-100'],
-                      ['REQUIRES_REPAIR', 'Reparar', 'text-rose-700 data-[active=true]:bg-rose-100'],
-                    ] as const).map(([result, label, tone]) => (
+                    {(
+                      [
+                        ['GOOD', 'Bien', 'text-emerald-700 data-[active=true]:bg-emerald-100'],
+                        ['ATTENTION', 'Atención', 'text-amber-700 data-[active=true]:bg-amber-100'],
+                        [
+                          'REQUIRES_REPAIR',
+                          'Reparar',
+                          'text-rose-700 data-[active=true]:bg-rose-100',
+                        ],
+                      ] as const
+                    ).map(([result, label, tone]) => (
                       <button
                         key={result}
                         type="button"
@@ -2584,17 +2928,17 @@ function InspectionEditor({
               <Plus className="h-4 w-4" /> Punto adicional
             </Button>
             <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <Button disabled={saveMutation.isPending || inspectedCount !== items.length}>
-              {saveMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <ClipboardCheck className="h-4 w-4" />
-              )}
-              Guardar inspección
-            </Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Cancelar
+              </Button>
+              <Button disabled={saveMutation.isPending || inspectedCount !== items.length}>
+                {saveMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ClipboardCheck className="h-4 w-4" />
+                )}
+                Guardar inspección
+              </Button>
             </div>
           </div>
         </form>
@@ -3295,8 +3639,7 @@ function VehicleHistoryPanel({
                   >
                     <p className="font-medium">{appointment.reason}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {new Date(appointment.startsAt).toLocaleString('es-DO')} ·{' '}
-                      {appointment.estimatedMinutes} min
+                      {new Date(appointment.startsAt).toLocaleString('es-DO')}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {appointment.status === 'CONVERTED_TO_RECEPTION'
@@ -3421,7 +3764,7 @@ function VehicleForm({
       </CardHeader>
       <CardContent>
         <form className="grid gap-4 md:grid-cols-3" onSubmit={onSubmit}>
-          <Field label="Cliente">
+          <Field label="Cliente" required>
             <select
               required
               value={form.customerId}
@@ -3443,7 +3786,7 @@ function VehicleForm({
               placeholder="A123456"
             />
           </Field>
-          <Field label="Tipo de vehículo">
+          <Field label="Tipo de vehículo" required>
             <select
               required
               value={form.vehicleType}
@@ -3455,7 +3798,7 @@ function VehicleForm({
               <option value="SUV">SUV</option>
             </select>
           </Field>
-          <Field label="Marca">
+          <Field label="Marca" required>
             <Input
               required
               value={form.make}
@@ -3463,7 +3806,7 @@ function VehicleForm({
               placeholder="Toyota"
             />
           </Field>
-          <Field label="Modelo">
+          <Field label="Modelo" required>
             <Input
               required
               value={form.model}
@@ -3545,11 +3888,12 @@ function TicketForm({
     sku: string | null;
     price: string;
     salePrice: string;
+    taxRate: string;
     trackInventory: boolean;
   }>;
   services: WorkshopService[];
   pending: boolean;
-  onChange: (field: keyof typeof emptyTicket, value: string | WorkshopTicketPriority) => void;
+  onChange: (field: keyof typeof emptyTicket, value: string) => void;
   onToggleMechanic: (id: string) => void;
   onAddLine: () => void;
   onSetLine: (index: number, field: keyof TicketLineForm, value: string) => void;
@@ -3580,7 +3924,7 @@ function TicketForm({
               </p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Cliente">
+              <Field label="Cliente" required>
                 <select
                   required
                   value={form.customerId}
@@ -3595,7 +3939,7 @@ function TicketForm({
                   ))}
                 </select>
               </Field>
-              <Field label="Vehículo">
+              <Field label="Vehículo" required>
                 <select
                   required
                   disabled={!form.customerId}
@@ -3614,7 +3958,7 @@ function TicketForm({
                 </select>
               </Field>
               <div className="md:col-span-2">
-                <Field label="¿Qué reporta el cliente?">
+                <Field label="¿Qué reporta el cliente?" required>
                   <textarea
                     required
                     rows={3}
@@ -3637,20 +3981,6 @@ function TicketForm({
               </span>
             </summary>
             <div className="grid gap-4 border-t border-slate-100 p-4 md:grid-cols-2 sm:p-5">
-              <Field label="Prioridad">
-                <select
-                  value={form.priority}
-                  onChange={(event) =>
-                    onChange('priority', event.target.value as WorkshopTicketPriority)
-                  }
-                  className="input-select"
-                >
-                  <option value="LOW">Baja</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">Alta</option>
-                  <option value="URGENT">Urgente</option>
-                </select>
-              </Field>
               <Field label="Fecha prometida">
                 <Input
                   type="datetime-local"
@@ -3663,14 +3993,6 @@ function TicketForm({
                   rows={2}
                   value={form.customerNotes}
                   onChange={(event) => onChange('customerNotes', event.target.value)}
-                  className="input-textarea"
-                />
-              </Field>
-              <Field label="Notas internas">
-                <textarea
-                  rows={2}
-                  value={form.internalNotes}
-                  onChange={(event) => onChange('internalNotes', event.target.value)}
                   className="input-textarea"
                 />
               </Field>
@@ -3721,7 +4043,7 @@ function TicketForm({
                 <p className="text-sm font-medium">Trabajos y repuestos presupuestados</p>
                 <Button type="button" size="sm" variant="outline" onClick={onAddLine}>
                   <Plus className="h-4 w-4" />
-                  Agregar línea
+                  Agregar repuestos y servicios
                 </Button>
               </div>
               {form.lines.length ? (
@@ -3740,7 +4062,7 @@ function TicketForm({
                         }}
                         className="input-select"
                       >
-                        <option value="LABOR">Mano de obra</option>
+                        <option value="LABOR">Servicio</option>
                         <option value="PART">Repuesto</option>
                         <option value="OTHER">Otro</option>
                       </select>
@@ -3835,6 +4157,7 @@ function TicketRow({
   onApproval,
   approvalPending,
   onSendToCashier,
+  onDelete,
 }: {
   ticket: WorkshopTicket;
   pending: boolean;
@@ -3845,6 +4168,7 @@ function TicketRow({
   ) => void;
   approvalPending: boolean;
   onSendToCashier: () => void;
+  onDelete?: () => void;
 }) {
   const next = nextStatus[ticket.status];
   const receptionRequired = ticket.status === 'RECEIVED' && !ticket.reception;
@@ -3857,19 +4181,6 @@ function TicketRow({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold">{ticket.ticketNumber}</span>
             <Badge variant={statusVariant(ticket.status)}>{statusLabels[ticket.status]}</Badge>
-            <Badge
-              variant={
-                ticket.priority === 'URGENT' || ticket.priority === 'HIGH' ? 'danger' : 'outline'
-              }
-            >
-              {ticket.priority === 'URGENT'
-                ? 'Urgente'
-                : ticket.priority === 'HIGH'
-                  ? 'Alta'
-                  : ticket.priority === 'LOW'
-                    ? 'Baja'
-                    : 'Normal'}
-            </Badge>
           </div>
           <p className="mt-2 text-sm font-medium">
             {ticket.customer.name} ·{' '}
@@ -3913,12 +4224,6 @@ function TicketRow({
                 Completar recepción
               </Link>
             </Button>
-          ) : ticket.status === 'APPROVED' &&
-            ticket.salesOrder?.invoice &&
-            !ticket.promisedAt ? (
-            <Button size="sm" variant="outline" onClick={onEdit}>
-              Definir entrega estimada
-            </Button>
           ) : next &&
             hasPermission(session, 'workorders.change_status') &&
             (next !== 'AWAITING_APPROVAL' || hasPermission(session, 'quotes.create')) ? (
@@ -3959,12 +4264,25 @@ function TicketRow({
               </Button>
             )
           ) : null}
+          {onDelete &&
+          session?.role !== 'ORDER_TAKER' &&
+          hasPermission(session, 'workorders.cancel') ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={onDelete}
+              className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+            >
+              <Trash2 className="h-4 w-4" />
+              Eliminar
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
-
 
 function ChangeOrderPanel({
   ticket,
@@ -3983,7 +4301,9 @@ function ChangeOrderPanel({
     sku: string | null;
     price: string;
     salePrice: string;
+    taxRate: string;
     trackInventory: boolean;
+    stock: number;
   }>;
   services: WorkshopService[];
   changeOrders: WorkshopChangeOrder[];
@@ -4089,7 +4409,7 @@ function ChangeOrderPanel({
             onSubmit={submit}
           >
             <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Trabajo adicional">
+              <Field label="Trabajo adicional" required>
                 <Input
                   required
                   value={title}
@@ -4129,7 +4449,7 @@ function ChangeOrderPanel({
                       )
                     }
                   >
-                    <option value="LABOR">Mano de obra</option>
+                    <option value="LABOR">Servicio</option>
                     <option value="PART">Repuesto</option>
                     <option value="OTHER">Otro</option>
                   </select>
@@ -4365,6 +4685,8 @@ function TicketEditor({
   mechanics,
   products,
   services,
+  partsLoading = false,
+  servicesLoading = false,
   pending,
   onClose,
   onSubmit,
@@ -4382,27 +4704,41 @@ function TicketEditor({
     sku: string | null;
     price: string;
     salePrice: string;
+    taxRate: string;
     trackInventory: boolean;
+    stock: number;
   }>;
   services: WorkshopService[];
+  partsLoading?: boolean;
+  servicesLoading?: boolean;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (payload: {
-    diagnosis?: string;
-    internalNotes?: string;
-    customerNotes?: string;
-    priority?: WorkshopTicketPriority;
-    promisedAt?: string;
-    mechanicIds?: string[];
-    lines?: Array<{
-      productId?: string;
-      serviceId?: string;
-      type: 'LABOR' | 'PART' | 'OTHER';
-      description: string;
-      quantity: number;
-      unitPrice: number;
-    }>;
-  }) => void;
+  onSubmit: (
+    payload: {
+      diagnosis?: string;
+      customerNotes?: string;
+      promisedAt?: string;
+      mechanicIds?: string[];
+      lines?: Array<{
+        productId?: string;
+        serviceId?: string;
+        vehicleAreaId?: string;
+        type: 'LABOR' | 'PART' | 'OTHER';
+        description: string;
+        quantity: number;
+        unitPrice: number;
+      }>;
+      areaFindings?: Array<{
+        areaId: string;
+        areaLabel: string;
+        view: 'front' | 'back' | 'left' | 'right' | 'top';
+        condition: 'OK' | 'ATTENTION' | 'REPAIR';
+        finding?: string;
+        notes?: string;
+      }>;
+    },
+    intent?: 'SAVE' | 'REQUEST_APPROVAL',
+  ) => void | Promise<void>;
   onCreateTask: (payload: WorkshopTaskInput) => Promise<unknown>;
   onUpdateTask: (taskId: string, payload: WorkshopTaskUpdate) => Promise<unknown>;
 }) {
@@ -4419,12 +4755,10 @@ function TicketEditor({
     ['PENDING', 'APPROVED', 'PARTIALLY_APPROVED'].includes(ticket.approvalStatus);
   const showDiagnosis = !stage || stage === 'DIAGNOSIS';
   const showQuote = !stage || stage === 'QUOTE';
-  const showTasks = !stage || stage === 'DIAGNOSIS' || stage === 'REPAIR';
+  const showTasks = !stage || stage === 'DIAGNOSIS';
   const [form, setForm] = useState({
     diagnosis: ticket.diagnosis ?? '',
-    internalNotes: ticket.internalNotes ?? '',
     customerNotes: ticket.customerNotes ?? '',
-    priority: ticket.priority,
     promisedAt: ticket.promisedAt ? ticket.promisedAt.slice(0, 16) : '',
     mechanicIds: ticket.assignments.map((assignment) => assignment.employee.id),
   });
@@ -4436,56 +4770,99 @@ function TicketEditor({
       description: line.description,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
+      taxRate: line.taxRate,
+      vehicleAreaId: line.vehicleAreaId ?? undefined,
     })),
   );
+  const [areaFindings, setAreaFindings] = useState<WorkshopVehicleAreaFinding[]>(
+    ticket.areaFindings ?? [],
+  );
+  const [activeCatalogAreaId, setActiveCatalogAreaId] = useState<string | null>(null);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [catalogDialog, setCatalogDialog] = useState<'PART' | 'SERVICE' | null>(null);
+  const addPart = (product: (typeof products)[number], vehicleAreaId?: string | null) => {
+    setLines((current) => [
+      ...current,
+      {
+        productId: product.id,
+        serviceId: '',
+        type: 'PART',
+        description: product.name,
+        quantity: '1',
+        unitPrice: String(Number(product.salePrice) > 0 ? product.salePrice : product.price),
+        taxRate: product.taxRate,
+        vehicleAreaId: vehicleAreaId ?? activeCatalogAreaId ?? undefined,
+      },
+    ]);
+    setActiveCatalogAreaId(null);
+  };
+  const addService = (service: WorkshopService, vehicleAreaId?: string | null) => {
+    setLines((current) => [
+      ...current,
+      {
+        productId: '',
+        serviceId: service.id,
+        type: 'LABOR',
+        description: service.name,
+        quantity: '1',
+        unitPrice: String(service.defaultPrice),
+        taxRate: service.taxRate,
+        vehicleAreaId: vehicleAreaId ?? activeCatalogAreaId ?? undefined,
+      },
+    ]);
+    setActiveCatalogAreaId(null);
+  };
   const draftSubtotal = lines.reduce(
     (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0),
     0,
   );
-  const currentTotal = Number(ticket.total || draftSubtotal);
-  const currentTaxes = Math.max(0, currentTotal - draftSubtotal);
+  const currentTaxes = lines.reduce((sum, line) => {
+    const lineSubtotal = Number(line.quantity || 0) * Number(line.unitPrice || 0);
+    const catalogTaxRate = line.productId
+      ? products.find((product) => product.id === line.productId)?.taxRate
+      : services.find((service) => service.id === line.serviceId)?.taxRate;
+    const taxRate = Number(line.taxRate ?? catalogTaxRate ?? 0.18);
+    return sum + lineSubtotal * (Number.isFinite(taxRate) ? taxRate : 0);
+  }, 0);
+  const currentTotal = draftSubtotal + currentTaxes;
   const selectedMechanic = mechanics.find((mechanic) => mechanic.id === form.mechanicIds[0]);
 
   return (
     <Card className={workspace ? 'border-border shadow-sm' : 'border-slate-400 shadow-md'}>
-      {!workspace ? <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle>Actualizar {ticket.ticketNumber}</CardTitle>
-            <CardDescription>
-              {ticket.customer.name} · {ticket.vehicle.make} {ticket.vehicle.model}
-            </CardDescription>
+      {!workspace ? (
+        <CardHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle>Actualizar {ticket.ticketNumber}</CardTitle>
+              <CardDescription>
+                {ticket.customer.name} · {ticket.vehicle.make} {ticket.vehicle.model}
+              </CardDescription>
+            </div>
+            <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+              Cerrar
+            </Button>
           </div>
-          <Button type="button" size="sm" variant="ghost" onClick={onClose}>
-            Cerrar
-          </Button>
-        </div>
-      </CardHeader> : null}
+        </CardHeader>
+      ) : null}
       <CardContent className="space-y-4">
         {workspace ? (
           <div className="flex items-start gap-3 border-b pb-4">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              {stage === 'QUOTE' ? <FileText className="h-4 w-4" /> : stage === 'REPAIR' ? <Wrench className="h-4 w-4" /> : <ClipboardCheck className="h-4 w-4" />}
+              {stage === 'QUOTE' ? (
+                <FileText className="h-4 w-4" />
+              ) : (
+                <ClipboardCheck className="h-4 w-4" />
+              )}
             </span>
             <div>
-              <h3 className="font-semibold">{stage === 'QUOTE' ? 'Cotización' : stage === 'REPAIR' ? 'Trabajos de reparación' : 'Diagnóstico'}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">{stage === 'QUOTE' ? 'Organiza los servicios y repuestos antes de solicitar aprobación.' : stage === 'REPAIR' ? 'Gestiona únicamente las tareas y trabajos autorizados.' : 'Registra los hallazgos iniciales y prepara la cotización.'}</p>
+              <h3 className="font-semibold">{stage === 'QUOTE' ? 'Cotización' : 'Diagnóstico'}</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {stage === 'QUOTE'
+                  ? 'Organiza los servicios y repuestos antes de solicitar aprobación.'
+                  : 'Registra los hallazgos iniciales y prepara la cotización.'}
+              </p>
             </div>
           </div>
-        ) : null}
-        {workspace && stage === 'REPAIR' ? (
-          <section className="rounded-lg border bg-slate-50 p-4">
-            <h4 className="text-sm font-semibold">Trabajos aprobados</h4>
-            <div className="mt-3 divide-y rounded-lg border bg-white">
-              {ticket.lines.filter((line) => line.approvalStatus !== 'REJECTED').map((line) => (
-                <div key={line.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm">
-                  <div><p className="font-medium">{line.description}</p><p className="mt-0.5 text-xs text-muted-foreground">{line.type === 'PART' ? 'Repuesto' : 'Servicio / mano de obra'}</p></div>
-                  <div className="flex items-center gap-3"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">Aprobado</span><span className="font-semibold">{formatWorkshopCurrency(line.total)}</span></div>
-                </div>
-              ))}
-              {!ticket.lines.filter((line) => line.approvalStatus !== 'REJECTED').length ? <p className="p-3 text-sm text-muted-foreground">Todavía no hay trabajos aprobados.</p> : null}
-            </div>
-          </section>
         ) : null}
         <form
           id={formId}
@@ -4493,418 +4870,556 @@ function TicketEditor({
           onSubmit={(event) => {
             event.preventDefault();
             if (readOnly) return;
-            onSubmit({
-              diagnosis: canDiagnose ? form.diagnosis || undefined : undefined,
-              internalNotes: canEdit ? form.internalNotes || undefined : undefined,
-              customerNotes: canEdit ? form.customerNotes || undefined : undefined,
-              priority: canEdit ? form.priority : undefined,
-              promisedAt: canEdit ? form.promisedAt || undefined : undefined,
-              mechanicIds: canAssign ? form.mechanicIds : undefined,
-              lines: budgetLocked
-                ? undefined
-                : lines
-                    .filter((line) => line.description.trim())
-                    .map((line) => ({
+            const submitter = (event.nativeEvent as SubmitEvent)
+              .submitter as HTMLButtonElement | null;
+            const intent = submitter?.value === 'REQUEST_APPROVAL' ? 'REQUEST_APPROVAL' : 'SAVE';
+            const validLines = lines.filter((line) => line.description.trim());
+            if (intent === 'REQUEST_APPROVAL' && !validLines.length) {
+              toast.error('Agrega al menos un servicio o repuesto a la cotización.');
+              return;
+            }
+            void onSubmit(
+              {
+                diagnosis: canDiagnose ? form.diagnosis || undefined : undefined,
+                customerNotes: canEdit ? form.customerNotes || undefined : undefined,
+                promisedAt: canEdit ? form.promisedAt || undefined : undefined,
+                mechanicIds: canAssign ? form.mechanicIds : undefined,
+                lines: budgetLocked
+                  ? undefined
+                  : validLines.map((line) => ({
                       productId: line.productId || undefined,
                       serviceId: line.serviceId || undefined,
                       type: line.type,
                       description: line.description,
                       quantity: Number(line.quantity || 1),
                       unitPrice: Number(line.unitPrice || 0),
+                      vehicleAreaId: line.vehicleAreaId || undefined,
                     })),
-            });
+                areaFindings: budgetLocked
+                  ? undefined
+                  : areaFindings.map((finding) => ({
+                      areaId: finding.areaId,
+                      areaLabel: finding.areaLabel,
+                      view: finding.view,
+                      condition: finding.condition,
+                      finding: finding.finding || undefined,
+                      notes: finding.notes || undefined,
+                    })),
+              },
+              intent,
+            );
           }}
         >
           <fieldset disabled={pending || readOnly} className="min-w-0 space-y-4">
-            {showDiagnosis ? <>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Prioridad">
-                <select
-                  disabled={!canEdit}
-                  value={form.priority}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      priority: event.target.value as WorkshopTicketPriority,
-                    }))
-                  }
-                  className="input-select"
-                >
-                  <option value="LOW">Baja</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">Alta</option>
-                  <option value="URGENT">Urgente</option>
-                </select>
-              </Field>
-              <Field label="Fecha prometida">
-                <Input
-                  type="datetime-local"
-                  disabled={!canEdit}
-                  value={form.promisedAt}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, promisedAt: event.target.value }))
-                  }
-                />
-              </Field>
-            </div>
-            <Field label="Diagnóstico">
-              <textarea
-                className="input-textarea"
-                disabled={!canDiagnose}
-                value={form.diagnosis}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, diagnosis: event.target.value }))
-                }
-                placeholder="Hallazgos y trabajo recomendado"
-              />
-            </Field>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Notas internas">
-                <textarea
-                  className="input-textarea min-h-20"
-                  disabled={!canEdit}
-                  value={form.internalNotes}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, internalNotes: event.target.value }))
-                  }
-                />
-              </Field>
-              <Field label="Notas para el cliente">
-                <textarea
-                  className="input-textarea min-h-20"
-                  disabled={!canEdit}
-                  value={form.customerNotes}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, customerNotes: event.target.value }))
-                  }
-                />
-              </Field>
-            </div>
-            <div className="grid items-end gap-4 md:grid-cols-2">
-              <Field label="Mecánico asignado">
-                <select
-                  className="input-select"
-                  disabled={!canAssign}
-                  value={form.mechanicIds[0] ?? ''}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      mechanicIds: event.target.value ? [event.target.value] : [],
-                    }))
-                  }
-                >
-                  <option value="">Sin asignar</option>
-                  {mechanics.map((mechanic) => (
-                    <option key={mechanic.id} value={mechanic.id}>{mechanic.user.name}</option>
-                  ))}
-                </select>
-              </Field>
-              <div className="flex min-h-10 items-center gap-3 rounded-md px-1">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
-                  {selectedMechanic ? initials(selectedMechanic.user.name) : '—'}
-                </span>
-                <div>
-                  <p className="text-sm font-medium">{selectedMechanic?.user.name ?? 'Sin mecánico'}</p>
-                  <p className="text-xs text-muted-foreground">Mecánico</p>
+            {showDiagnosis ? (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Fecha prometida">
+                    <Input
+                      type="datetime-local"
+                      disabled={!canEdit}
+                      value={form.promisedAt}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, promisedAt: event.target.value }))
+                      }
+                    />
+                  </Field>
                 </div>
-              </div>
-            </div>
-            </> : null}
-            {showQuote ? <div>
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-medium">Presupuesto: repuestos y servicios</p>
-                  {ticket.quoteVersions[0] ? (
-                    <p className="text-xs text-muted-foreground">
-                      Versión {ticket.quoteVersions[0].version} ·{' '}
-                      {ticket.quoteVersions[0].status === 'PENDING'
-                        ? 'Pendiente de respuesta'
-                        : 'Respuesta registrada'}
-                    </p>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={budgetLocked}
-                  onClick={() =>
-                    setLines((current) => [
-                      ...current,
-                      {
-                        productId: '',
-                        serviceId: '',
-                        type: 'LABOR',
-                        description: '',
-                        quantity: '1',
-                        unitPrice: '',
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  Agregar línea
-                </Button>
-              </div>
-              {ticket.salesOrder ||
-              ticket.approvalStatus === 'APPROVED' ||
-              ticket.approvalStatus === 'PARTIALLY_APPROVED' ? (
-                <p className="mb-2 text-xs text-muted-foreground">
-                  El presupuesto aprobado se mantiene congelado. Para cambiarlo se requerirá una
-                  revisión.
-                </p>
-              ) : null}
-              {ticket.quoteVersions.length ? (
-                <div className="mb-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
-                  <p className="mb-2 font-medium text-foreground">Historial de presupuestos</p>
-                  <div className="space-y-1">
-                    {ticket.quoteVersions.map((version) => (
-                      <div
-                        key={version.id}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-                      >
-                        <span>
-                          Versión {version.version} ·{' '}
-                          {version.status === 'PENDING'
-                            ? 'Pendiente'
-                            : version.status === 'APPROVED'
-                              ? 'Aprobada'
-                              : version.status === 'PARTIALLY_APPROVED'
-                                ? 'Aprobada parcialmente'
-                                : 'Rechazada'}
-                        </span>
-                        <span className="font-medium">{formatWorkshopCurrency(version.total)}</span>
-                        {version.decision ? (
-                          <AuthorizationRecord decision={version.decision} note={version.note} />
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {ticket.statusEvents.length ? (
-                <div className="mb-3 rounded-md border border-border bg-white p-3 text-xs">
-                  <p className="mb-2 font-medium text-foreground">Historial de la orden</p>
-                  <div className="space-y-1.5">
-                    {ticket.statusEvents.slice(0, 6).map((event) => (
-                      <div
-                        key={event.id}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-                      >
-                        <span>
-                          {event.fromStatus ? `${statusLabels[event.fromStatus]} → ` : ''}
-                          <strong>{statusLabels[event.toStatus]}</strong>
-                          {event.note ? ` · ${event.note}` : ''}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {event.createdBy.name} ·{' '}
-                          {new Date(event.createdAt).toLocaleString('es-DO')}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {budgetLocked ? (
-                <div className="divide-y rounded-md border">
-                  {ticket.lines.map((line) => (
-                    <div
-                      key={line.id}
-                      className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
+                <Field label="Diagnóstico">
+                  <textarea
+                    className="input-textarea"
+                    disabled={!canDiagnose}
+                    value={form.diagnosis}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, diagnosis: event.target.value }))
+                    }
+                    placeholder="Hallazgos y trabajo recomendado"
+                  />
+                </Field>
+                <div className="grid items-end gap-4 md:grid-cols-2">
+                  <Field label="Mecánico asignado">
+                    <select
+                      className="input-select"
+                      disabled={!canAssign}
+                      value={form.mechanicIds[0] ?? ''}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          mechanicIds: event.target.value ? [event.target.value] : [],
+                        }))
+                      }
                     >
-                      <span>
-                        {line.description} · {line.quantity} ×{' '}
-                        {formatWorkshopCurrency(line.unitPrice)}
-                      </span>
-                      <Badge
-                        variant={
-                          line.approvalStatus === 'APPROVED'
-                            ? 'success'
-                            : line.approvalStatus === 'REJECTED'
-                              ? 'danger'
-                              : 'outline'
-                        }
-                      >
-                        {line.approvalStatus === 'APPROVED'
-                          ? 'Autorizado'
-                          : line.approvalStatus === 'REJECTED'
-                            ? 'Rechazado'
-                            : 'Pendiente'}
-                      </Badge>
+                      <option value="">Sin asignar</option>
+                      {mechanics.map((mechanic) => (
+                        <option key={mechanic.id} value={mechanic.id}>
+                          {mechanic.user.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <div className="flex min-h-10 items-center gap-3 rounded-md px-1">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
+                      {selectedMechanic ? initials(selectedMechanic.user.name) : '—'}
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium">
+                        {selectedMechanic?.user.name ?? 'Sin mecánico'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Mecánico</p>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              ) : lines.length ? (
-                <div className="space-y-2">
-                  {lines.map((line, index) => (
-                    <div
-                      key={index}
-                      className="grid min-w-0 gap-2 rounded-md border border-border p-3 md:grid-cols-2 xl:grid-cols-[9rem_1fr_1fr_6rem_8rem_auto]"
+              </>
+            ) : null}
+            {showQuote ? (
+              <div className="space-y-4">
+                <section className="rounded-lg border bg-slate-50/70 p-3">
+                  <Field label="Notas del cliente">
+                    <textarea
+                      className="input-textarea min-h-20 bg-white"
+                      disabled={!canEdit}
+                      value={form.customerNotes}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, customerNotes: event.target.value }))
+                      }
+                      placeholder="Preferencias, autorizaciones o comentarios comunicados por el cliente"
+                    />
+                  </Field>
+                </section>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Presupuesto: repuestos y servicios</p>
+                    {ticket.quoteVersions[0] ? (
+                      <p className="text-xs text-muted-foreground">
+                        Versión {ticket.quoteVersions[0].version} ·{' '}
+                        {ticket.status === 'DIAGNOSIS' && ticket.approvalStatus === 'NOT_REQUESTED'
+                          ? 'Preparando nueva versión'
+                          : ticket.quoteVersions[0].status === 'PENDING'
+                            ? 'Pendiente de respuesta'
+                            : 'Respuesta registrada'}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={cartOpen ? 'default' : 'outline'}
+                    onClick={() => setCartOpen((current) => !current)}
+                  >
+                    <ShoppingCart className="h-4 w-4" />
+                    Carrito
+                    <Badge
+                      variant="outline"
+                      className={
+                        cartOpen ? 'border-white/30 bg-white/15 text-white' : 'bg-slate-50'
+                      }
                     >
-                      <select
-                        value={line.type}
-                        onChange={(event) =>
-                          setLines((current) =>
-                            current.map((entry, entryIndex) =>
-                              entryIndex === index
-                                ? {
-                                    ...entry,
-                                    type: event.target.value as TicketLineForm['type'],
-                                    productId: '',
-                                    serviceId: '',
-                                  }
-                                : entry,
-                            ),
-                          )
-                        }
-                        className="input-select"
-                      >
-                        <option value="LABOR">Mano de obra</option>
-                        <option value="PART">Repuesto</option>
-                        <option value="OTHER">Otro</option>
-                      </select>
-                      {line.type === 'PART' ? (
-                        <select
-                          value={line.productId}
-                          onChange={(event) => {
-                            const product = products.find(
-                              (candidate) => candidate.id === event.target.value,
-                            );
-                            setLines((current) =>
-                              current.map((entry, entryIndex) =>
-                                entryIndex === index
-                                  ? {
-                                      ...entry,
-                                      productId: event.target.value,
-                                      serviceId: '',
-                                      description: product?.name ?? entry.description,
-                                      unitPrice: product
-                                        ? String(
-                                            Number(product.salePrice) > 0
-                                              ? product.salePrice
-                                              : product.price,
-                                          )
-                                        : entry.unitPrice,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }}
-                          className="input-select"
-                        >
-                          <option value="">Seleccionar repuesto</option>
-                          {products
-                            .filter((product) => product.trackInventory)
-                            .map((product) => (
-                              <option key={product.id} value={product.id}>
-                                {product.name}
-                                {product.sku ? ` · ${product.sku}` : ''}
-                              </option>
-                            ))}
-                        </select>
-                      ) : (
-                        <select
-                          value={line.serviceId}
-                          onChange={(event) => {
-                            const service = services.find(
-                              (candidate) => candidate.id === event.target.value,
-                            );
-                            setLines((current) =>
-                              current.map((entry, entryIndex) =>
-                                entryIndex === index
-                                  ? {
-                                      ...entry,
-                                      productId: '',
-                                      serviceId: event.target.value,
-                                      description: service?.name ?? entry.description,
-                                      unitPrice: service
-                                        ? String(service.defaultPrice)
-                                        : entry.unitPrice,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }}
-                          className="input-select"
-                        >
-                          <option value="">Seleccionar servicio</option>
-                          {services.map((service) => (
-                            <option key={service.id} value={service.id}>
-                              {service.name} · {service.code}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      <Input
-                        value={line.description}
-                        onChange={(event) =>
-                          setLines((current) =>
-                            current.map((entry, entryIndex) =>
-                              entryIndex === index
-                                ? { ...entry, description: event.target.value }
-                                : entry,
-                            ),
-                          )
-                        }
-                        placeholder="Descripción"
-                      />
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={line.quantity}
-                        onChange={(event) =>
-                          setLines((current) =>
-                            current.map((entry, entryIndex) =>
-                              entryIndex === index
-                                ? { ...entry, quantity: event.target.value }
-                                : entry,
-                            ),
-                          )
-                        }
-                      />
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(event) =>
-                          setLines((current) =>
-                            current.map((entry, entryIndex) =>
-                              entryIndex === index
-                                ? { ...entry, unitPrice: event.target.value }
-                                : entry,
-                            ),
-                          )
-                        }
-                      />
+                      {lines.length}
+                    </Badge>
+                    <span className="font-semibold">{formatWorkshopCurrency(currentTotal)}</span>
+                  </Button>
+                </div>
+                {ticket.salesOrder ||
+                ticket.approvalStatus === 'APPROVED' ||
+                ticket.approvalStatus === 'PARTIALLY_APPROVED' ? (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    El presupuesto aprobado se mantiene congelado. Para cambiarlo se requerirá una
+                    revisión.
+                  </p>
+                ) : null}
+                {cartOpen ? (
+                  <section className="overflow-hidden rounded-xl border border-slate-300 bg-slate-50/60 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white">
+                          <ShoppingCart className="h-4 w-4" />
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold">Carrito de la cotización</p>
+                          <p className="text-xs text-muted-foreground">
+                            {lines.length} partida(s) agregada(s)
+                          </p>
+                        </div>
+                      </div>
                       <Button
                         type="button"
-                        variant="ghost"
                         size="sm"
-                        disabled={budgetLocked}
-                        onClick={() =>
-                          setLines((current) =>
-                            current.filter((_, entryIndex) => entryIndex !== index),
-                          )
-                        }
+                        variant="ghost"
+                        onClick={() => setCartOpen(false)}
                       >
-                        Quitar
+                        <X className="h-4 w-4" /> Cerrar carrito
                       </Button>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                  Agrega los servicios y repuestos diagnosticados antes de solicitar la aprobación.
-                </p>
-              )}
-              <dl className="ml-auto mt-4 w-full max-w-xs space-y-2 rounded-lg bg-slate-50 p-4 text-sm">
-                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Subtotal</dt><dd className="font-medium">{formatWorkshopCurrency(draftSubtotal)}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Impuestos</dt><dd className="font-medium">{formatWorkshopCurrency(currentTaxes)}</dd></div>
-                <div className="flex justify-between gap-4 border-t pt-2 text-base"><dt className="font-semibold">Total</dt><dd className="font-semibold">{formatWorkshopCurrency(currentTotal || draftSubtotal)}</dd></div>
-              </dl>
-            </div> : null}
+                    <div className="p-3">
+                      {budgetLocked ? (
+                        <div className="overflow-x-auto rounded-xl border bg-white">
+                          <div className="grid min-w-[860px] grid-cols-[8rem_minmax(15rem,1fr)_5rem_7rem_7rem_8rem] gap-3 border-b bg-slate-50 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            <span>Tipo</span>
+                            <span>Descripción</span>
+                            <span className="text-right">Cant.</span>
+                            <span className="text-right">Precio</span>
+                            <span className="text-right">ITBIS</span>
+                            <span className="text-right">Estado</span>
+                          </div>
+                          {ticket.lines.map((line) => {
+                            const subtotal = Number(line.quantity) * Number(line.unitPrice);
+                            const tax = subtotal * Number(line.taxRate);
+                            return (
+                              <div
+                                key={line.id}
+                                className="grid min-w-[860px] grid-cols-[8rem_minmax(15rem,1fr)_5rem_7rem_7rem_8rem] items-center gap-3 border-b px-3 py-3 text-sm last:border-b-0"
+                              >
+                                <Badge variant="outline" className="w-fit">
+                                  {line.type === 'PART'
+                                    ? 'Repuesto'
+                                    : line.type === 'LABOR'
+                                      ? 'Servicio'
+                                      : 'Otro'}
+                                </Badge>
+                                <span className="font-medium text-slate-900">
+                                  {line.description}
+                                  {line.vehicleAreaId ? (
+                                    <span className="mt-1 block text-xs font-normal text-blue-700">
+                                      {VEHICLE_AREA_LABELS[line.vehicleAreaId] ??
+                                        line.vehicleAreaId}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="text-right tabular-nums">
+                                  {Number(line.quantity)}
+                                </span>
+                                <span className="text-right tabular-nums">
+                                  {formatWorkshopCurrency(line.unitPrice)}
+                                </span>
+                                <span className="text-right tabular-nums">
+                                  {formatWorkshopCurrency(tax)}
+                                </span>
+                                <Badge
+                                  className="ml-auto w-fit"
+                                  variant={
+                                    line.approvalStatus === 'APPROVED'
+                                      ? 'success'
+                                      : line.approvalStatus === 'REJECTED'
+                                        ? 'danger'
+                                        : 'outline'
+                                  }
+                                >
+                                  {line.approvalStatus === 'APPROVED'
+                                    ? 'Autorizado'
+                                    : line.approvalStatus === 'REJECTED'
+                                      ? 'Rechazado'
+                                      : 'Pendiente'}
+                                </Badge>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : lines.length ? (
+                        <div className="overflow-x-auto rounded-xl border bg-white">
+                          <div className="grid min-w-[920px] grid-cols-[8rem_minmax(22rem,1fr)_5rem_7rem_7rem_8rem] gap-2 border-b bg-slate-50 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            <span>Tipo</span>
+                            <span>Descripción</span>
+                            <span className="text-right">Cant.</span>
+                            <span className="text-right">Precio</span>
+                            <span className="text-right">ITBIS</span>
+                            <span className="text-right">Estado</span>
+                          </div>
+                          {lines.map((line, index) => {
+                            const subtotal =
+                              Number(line.quantity || 0) * Number(line.unitPrice || 0);
+                            const tax = subtotal * Number(line.taxRate ?? 0.18);
+                            return (
+                              <div
+                                key={index}
+                                className="grid min-w-[920px] grid-cols-[8rem_minmax(22rem,1fr)_5rem_7rem_7rem_8rem] items-center gap-2 border-b px-3 py-3 last:border-b-0"
+                              >
+                                <select
+                                  value={line.type}
+                                  onChange={(event) =>
+                                    setLines((current) =>
+                                      current.map((entry, entryIndex) =>
+                                        entryIndex === index
+                                          ? {
+                                              ...entry,
+                                              type: event.target.value as TicketLineForm['type'],
+                                              productId: '',
+                                              serviceId: '',
+                                            }
+                                          : entry,
+                                      ),
+                                    )
+                                  }
+                                  className="input-select"
+                                >
+                                  <option value="LABOR">Servicio</option>
+                                  <option value="PART">Repuesto</option>
+                                  <option value="OTHER">Otro</option>
+                                </select>
+                                <div className="space-y-1.5">
+                                  {line.type === 'PART' ? (
+                                    <select
+                                      value={line.productId}
+                                      onChange={(event) => {
+                                        const product = products.find(
+                                          (candidate) => candidate.id === event.target.value,
+                                        );
+                                        setLines((current) =>
+                                          current.map((entry, entryIndex) =>
+                                            entryIndex === index
+                                              ? {
+                                                  ...entry,
+                                                  productId: event.target.value,
+                                                  serviceId: '',
+                                                  description: product?.name ?? entry.description,
+                                                  unitPrice: product
+                                                    ? String(
+                                                        Number(product.salePrice) > 0
+                                                          ? product.salePrice
+                                                          : product.price,
+                                                      )
+                                                    : entry.unitPrice,
+                                                  taxRate: product?.taxRate ?? entry.taxRate,
+                                                }
+                                              : entry,
+                                          ),
+                                        );
+                                      }}
+                                      className="input-select"
+                                    >
+                                      <option value="">Seleccionar repuesto</option>
+                                      {products
+                                        .filter((product) => product.trackInventory)
+                                        .map((product) => (
+                                          <option key={product.id} value={product.id}>
+                                            {product.name}
+                                            {product.sku ? ` · ${product.sku}` : ''}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  ) : (
+                                    <select
+                                      value={line.serviceId}
+                                      onChange={(event) => {
+                                        const service = services.find(
+                                          (candidate) => candidate.id === event.target.value,
+                                        );
+                                        setLines((current) =>
+                                          current.map((entry, entryIndex) =>
+                                            entryIndex === index
+                                              ? {
+                                                  ...entry,
+                                                  productId: '',
+                                                  serviceId: event.target.value,
+                                                  description: service?.name ?? entry.description,
+                                                  unitPrice: service
+                                                    ? String(service.defaultPrice)
+                                                    : entry.unitPrice,
+                                                  taxRate: service?.taxRate ?? entry.taxRate,
+                                                }
+                                              : entry,
+                                          ),
+                                        );
+                                      }}
+                                      className="input-select"
+                                    >
+                                      <option value="">Seleccionar servicio</option>
+                                      {services.map((service) => (
+                                        <option key={service.id} value={service.id}>
+                                          {service.name} · {service.code}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  <Input
+                                    value={line.description}
+                                    onChange={(event) =>
+                                      setLines((current) =>
+                                        current.map((entry, entryIndex) =>
+                                          entryIndex === index
+                                            ? { ...entry, description: event.target.value }
+                                            : entry,
+                                        ),
+                                      )
+                                    }
+                                    placeholder="Descripción"
+                                  />
+                                  <select
+                                    className="input-select h-8 text-xs"
+                                    aria-label="Zona del vehículo relacionada"
+                                    value={line.vehicleAreaId ?? ''}
+                                    onChange={(event) =>
+                                      setLines((current) =>
+                                        current.map((entry, entryIndex) =>
+                                          entryIndex === index
+                                            ? {
+                                                ...entry,
+                                                vehicleAreaId: event.target.value || undefined,
+                                              }
+                                            : entry,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    <option value="">Sin zona relacionada</option>
+                                    {areaFindings.map((finding) => (
+                                      <option key={finding.areaId} value={finding.areaId}>
+                                        {finding.areaLabel}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <Input
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  value={line.quantity}
+                                  onChange={(event) =>
+                                    setLines((current) =>
+                                      current.map((entry, entryIndex) =>
+                                        entryIndex === index
+                                          ? { ...entry, quantity: event.target.value }
+                                          : entry,
+                                      ),
+                                    )
+                                  }
+                                />
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={line.unitPrice}
+                                  onChange={(event) =>
+                                    setLines((current) =>
+                                      current.map((entry, entryIndex) =>
+                                        entryIndex === index
+                                          ? { ...entry, unitPrice: event.target.value }
+                                          : entry,
+                                      ),
+                                    )
+                                  }
+                                />
+                                <span className="text-right text-sm font-medium tabular-nums text-slate-700">
+                                  {formatWorkshopCurrency(tax)}
+                                </span>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Badge variant="outline">Borrador</Badge>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label="Quitar línea"
+                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    disabled={budgetLocked}
+                                    onClick={() =>
+                                      setLines((current) =>
+                                        current.filter((_, entryIndex) => entryIndex !== index),
+                                      )
+                                    }
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          Agrega los servicios y repuestos diagnosticados antes de solicitar la
+                          aprobación.
+                        </p>
+                      )}
+                      <dl className="ml-auto mt-4 w-full max-w-sm overflow-hidden rounded-xl border bg-white text-sm shadow-sm">
+                        <div className="flex justify-between gap-4 px-4 py-3">
+                          <dt className="text-muted-foreground">Subtotal sin ITBIS</dt>
+                          <dd className="font-semibold tabular-nums">
+                            {formatWorkshopCurrency(draftSubtotal)}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 border-t px-4 py-3">
+                          <dt className="text-muted-foreground">ITBIS</dt>
+                          <dd className="font-semibold tabular-nums text-blue-700">
+                            {formatWorkshopCurrency(currentTaxes)}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 border-t bg-slate-50 px-4 py-3.5 text-base">
+                          <dt className="font-semibold">Total</dt>
+                          <dd className="text-lg font-bold tabular-nums">
+                            {formatWorkshopCurrency(currentTotal)}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </section>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setCartOpen(true)}
+                    className="flex w-full items-center justify-between gap-4 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3 text-left transition hover:border-slate-500 hover:bg-slate-50"
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-slate-800 shadow-sm ring-1 ring-slate-200">
+                        <ShoppingCart className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0">
+                        <strong className="block text-sm">Resumen del carrito</strong>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {lines.length
+                            ? `${lines.length} partida(s) · Pulsa para revisar o editar`
+                            : 'Todavía no has agregado repuestos ni servicios'}
+                        </span>
+                      </span>
+                    </span>
+                    <strong className="shrink-0 text-sm tabular-nums">
+                      {formatWorkshopCurrency(currentTotal)}
+                    </strong>
+                  </button>
+                )}
+                <VehicleDamageMap
+                  vehicleType={ticket.vehicle.vehicleType}
+                  findings={areaFindings}
+                  lines={lines}
+                  readOnly={budgetLocked}
+                  parts={products.filter((product) => product.trackInventory)}
+                  services={services}
+                  catalogLoading={partsLoading || servicesLoading}
+                  onChange={setAreaFindings}
+                  onAddPart={(areaId, productId) => {
+                    const product = products.find((item) => item.id === productId);
+                    if (product) addPart(product, areaId);
+                  }}
+                  onAddService={(areaId, serviceId) => {
+                    const service = services.find((item) => item.id === serviceId);
+                    if (service) addService(service, areaId);
+                  }}
+                  onCreatePart={
+                    hasPermission(session, 'products.manage')
+                      ? (areaId) => {
+                          setActiveCatalogAreaId(areaId);
+                          setCatalogDialog('PART');
+                        }
+                      : undefined
+                  }
+                  onCreateService={
+                    hasPermission(session, 'services.manage')
+                      ? (areaId) => {
+                          setActiveCatalogAreaId(areaId);
+                          setCatalogDialog('SERVICE');
+                        }
+                      : undefined
+                  }
+                  onResetArea={(areaId) =>
+                    setLines((current) =>
+                      current.map((line) =>
+                        line.vehicleAreaId === areaId
+                          ? { ...line, vehicleAreaId: undefined }
+                          : line,
+                      ),
+                    )
+                  }
+                />
+              </div>
+            ) : null}
           </fieldset>
           {canManage && !workspace ? (
             <Button disabled={pending || readOnly}>
@@ -4913,23 +5428,278 @@ function TicketEditor({
             </Button>
           ) : null}
         </form>
-        {showTasks ? <WorkshopTasksPanel
-          ticket={ticket}
-          mechanics={mechanics}
-          mode={stage === 'DIAGNOSIS' ? 'diagnosis' : 'standard'}
-          pending={pending}
-          onCreate={onCreateTask}
-          onUpdate={onUpdateTask}
-        /> : null}
+        {showTasks ? (
+          <WorkshopTasksPanel
+            ticket={ticket}
+            mechanics={mechanics}
+            mode={stage === 'DIAGNOSIS' ? 'diagnosis' : 'standard'}
+            pending={pending}
+            onCreate={onCreateTask}
+            onUpdate={onUpdateTask}
+          />
+        ) : null}
       </CardContent>
+      {catalogDialog ? (
+        <CatalogItemDialog
+          kind={catalogDialog}
+          onClose={() => setCatalogDialog(null)}
+          onCreated={(item) => {
+            if (catalogDialog === 'PART') addPart(item as Product);
+            else addService(item as WorkshopService);
+            setCatalogDialog(null);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function CatalogItemDialog({
+  kind,
+  onClose,
+  onCreated,
+}: {
+  kind: 'PART' | 'SERVICE';
+  onClose: () => void;
+  onCreated: (item: Product | WorkshopService) => void;
+}) {
+  const session = useCurrentSession();
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    code: '',
+    name: '',
+    sku: '',
+    category: '',
+    price: '',
+    cost: '',
+    stock: '0',
+    minStock: '0',
+    taxRate: '0.18',
+    description: '',
+  });
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!session) throw new Error('Sesión requerida.');
+      if (kind === 'PART') {
+        return createProduct(session.tenantId, session.accessToken, {
+          name: form.name.trim(),
+          sku: form.sku.trim() || undefined,
+          description: form.description.trim() || undefined,
+          unit: 'UNIT',
+          price: Number(form.price),
+          cost: form.cost ? Number(form.cost) : undefined,
+          taxRate: Number(form.taxRate),
+          taxCategory: Number(form.taxRate) === 0 ? 'EXEMPT' : 'ITBIS_18',
+          trackInventory: true,
+          stock: Number(form.stock),
+          minStock: Number(form.minStock),
+          status: 'ACTIVE',
+        });
+      }
+      return createWorkshopService(session.tenantId, session.accessToken, {
+        code: form.code.trim(),
+        name: form.name.trim(),
+        category: form.category.trim() || undefined,
+        description: form.description.trim() || undefined,
+        defaultPrice: Number(form.price),
+        taxRate: Number(form.taxRate),
+        active: true,
+      });
+    },
+    onSuccess: async (item) => {
+      toast.success(kind === 'PART' ? 'Repuesto creado' : 'Servicio creado');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['products'] }),
+        queryClient.invalidateQueries({ queryKey: ['workshop-services'] }),
+      ]);
+      onCreated(item);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'No se pudo crear el registro.'),
+  });
+
+  return createPortal(
+    <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/55 p-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={kind === 'PART' ? 'Nuevo repuesto' : 'Nuevo servicio'}
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-xl overflow-y-auto rounded-2xl border bg-white shadow-2xl"
+      >
+        <header className="flex items-start justify-between gap-3 border-b px-5 py-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+              {kind === 'PART' ? 'Inventario' : 'Catálogo de servicios'}
+            </p>
+            <h3 className="mt-1 text-lg font-semibold">
+              {kind === 'PART' ? 'Nuevo repuesto' : 'Nuevo servicio'}
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {kind === 'PART'
+                ? 'El repuesto controla existencia y se identifica por nombre o SKU.'
+                : 'El servicio representa mano de obra y no descuenta inventario.'}
+            </p>
+          </div>
+          <Button type="button" size="icon" variant="ghost" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </header>
+        <form
+          className="space-y-4 p-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            mutation.mutate();
+          }}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            {kind === 'SERVICE' ? (
+              <Field label="Código" required>
+                <Input
+                  required
+                  value={form.code}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, code: event.target.value }))
+                  }
+                  placeholder="SRV-001"
+                />
+              </Field>
+            ) : (
+              <Field label="SKU">
+                <Input
+                  value={form.sku}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, sku: event.target.value }))
+                  }
+                  placeholder="REP-001"
+                />
+              </Field>
+            )}
+            <Field label="Nombre" required>
+              <Input
+                required
+                value={form.name}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+            </Field>
+            {kind === 'SERVICE' ? (
+              <Field label="Categoría">
+                <Input
+                  value={form.category}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, category: event.target.value }))
+                  }
+                  placeholder="Mantenimiento"
+                />
+              </Field>
+            ) : (
+              <Field label="Costo">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.cost}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, cost: event.target.value }))
+                  }
+                />
+              </Field>
+            )}
+            <Field label={kind === 'PART' ? 'Precio de venta' : 'Precio del servicio'} required>
+              <Input
+                required
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={form.price}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, price: event.target.value }))
+                }
+              />
+            </Field>
+            {kind === 'PART' ? (
+              <>
+                <Field label="Existencia inicial" required>
+                  <Input
+                    required
+                    disabled={!hasPermission(session, 'inventory.adjust')}
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.stock}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, stock: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="Stock mínimo" required>
+                  <Input
+                    required
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.minStock}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, minStock: event.target.value }))
+                    }
+                  />
+                </Field>
+              </>
+            ) : null}
+            <Field label="ITBIS">
+              <select
+                className="input-select"
+                value={form.taxRate}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, taxRate: event.target.value }))
+                }
+              >
+                <option value="0.18">18%</option>
+                <option value="0">Exento</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Descripción">
+            <textarea
+              className="input-textarea min-h-20"
+              value={form.description}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, description: event.target.value }))
+              }
+            />
+          </Field>
+          <footer className="flex justify-end gap-2 border-t pt-4">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button disabled={mutation.isPending}>
+              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Guardar y agregar
+            </Button>
+          </footer>
+        </form>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function Field({
+  label,
+  children,
+  required = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+}) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {required ? <span className="ml-1 text-red-500">*</span> : null}
+      </Label>
       {children}
     </div>
   );

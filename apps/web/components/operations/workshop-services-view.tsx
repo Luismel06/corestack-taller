@@ -151,7 +151,7 @@ export function WorkshopServicesView() {
           <CardContent>
             <form className="space-y-4" onSubmit={submit}>
               <div className="grid gap-4 md:grid-cols-3">
-                <ServiceField label="Código">
+                <ServiceField label="Código" required>
                   <Input
                     required
                     maxLength={40}
@@ -163,7 +163,7 @@ export function WorkshopServicesView() {
                   />
                 </ServiceField>
                 <div className="md:col-span-2">
-                  <ServiceField label="Nombre">
+                  <ServiceField label="Nombre" required>
                     <Input
                       required
                       maxLength={160}
@@ -185,7 +185,7 @@ export function WorkshopServicesView() {
                     placeholder="Mantenimiento"
                   />
                 </ServiceField>
-                <ServiceField label="Precio base">
+                <ServiceField label="Precio base" required>
                   <Input
                     required
                     min="0"
@@ -330,10 +330,21 @@ export function WorkshopServicesView() {
   );
 }
 
-function ServiceField({ label, children }: { label: string; children: React.ReactNode }) {
+function ServiceField({
+  label,
+  children,
+  required = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+}) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {required ? <span className="ml-1 text-red-500">*</span> : null}
+      </Label>
       {children}
     </div>
   );

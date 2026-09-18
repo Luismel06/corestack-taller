@@ -83,21 +83,18 @@ export function workshopPaymentState(ticket: PaymentTicket): PaymentState {
         'Saldo cero sin confirmación de pago. Revisa la factura antes de entregar.',
         'warning',
       );
-    const delivered = Boolean(ticket.delivery);
+    const delivered = ticket.status === 'DELIVERED' || Boolean(ticket.delivery);
     return {
       ...result(
         delivered ? 'DELIVERED' : 'PAID',
         delivered ? 'Pagada y entregada' : 'Pagada',
         delivered
           ? 'El cobro y la entrega están registrados.'
-          : 'Cobro completo. El responsable del taller puede registrar la entrega del vehículo.',
+          : 'Cobro completo. La orden se cerrará como entregada al completar la facturación.',
         'success',
       ),
       fullyPaid: true,
-      canDeliver:
-        !delivered &&
-        ticket.status === 'READY_FOR_DELIVERY' &&
-        ticket.qualityCheck?.status === 'APPROVED',
+      canDeliver: false,
     };
   }
   if (order) {
@@ -123,14 +120,14 @@ export function workshopPaymentState(ticket: PaymentTicket): PaymentState {
         );
   }
   if (
-    ticket.status === 'APPROVED' &&
+    ['APPROVED', 'IN_PROGRESS', 'READY_FOR_DELIVERY'].includes(ticket.status) &&
     ['APPROVED', 'PARTIALLY_APPROVED'].includes(ticket.approvalStatus)
   )
     return {
       ...result(
         'READY',
         'Lista para facturar',
-        'El cliente aprobó el presupuesto. Envía la orden a Caja para emitir la factura antes de reparar.',
+        'El cliente aprobó el presupuesto. Envía la orden a Caja para facturar y completar el proceso.',
       ),
       canPrepare: true,
     };

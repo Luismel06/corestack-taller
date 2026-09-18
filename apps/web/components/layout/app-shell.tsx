@@ -19,7 +19,7 @@ import {
   getCurrentCashSession,
   getCurrentAccess,
   ApiError,
-  getDashboardSummary,
+  getOperationalDashboardSummary,
   getFiscalSequenceAlerts,
   type FiscalSequenceAlert,
 } from '@/lib/api';
@@ -61,8 +61,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [session, pathname, router]);
 
   const summaryQuery = useQuery({
-    queryKey: ['dashboard-summary', session?.tenantId, 'layout'],
-    queryFn: () => getDashboardSummary(session?.tenantId ?? '', session?.accessToken ?? ''),
+    queryKey: ['dashboard-operational-summary', session?.tenantId],
+    queryFn: () =>
+      getOperationalDashboardSummary(session?.tenantId ?? '', session?.accessToken ?? ''),
     enabled: Boolean(session && canAccessPath(session, '/dashboard')),
     refetchInterval: 60_000,
   });
@@ -124,12 +125,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         toast.warning('Debes cerrar la caja antes de salir.', {
           description: `${currentCashSession.cashRegister.name} sigue abierta con fondo inicial ${formatCurrency(Number(currentCashSession.openingAmount))}.`,
         });
-        if (session.role === 'CASHIER') {
+        if (canAccessPath(session, '/pos')) {
           router.replace('/pos');
           return;
         }
         router.push(
-          canAccessPath(session, '/cash/sessions') ? '/cash/sessions' : getDefaultPathForSession(session),
+          canAccessPath(session, '/cash/sessions')
+            ? '/cash/sessions'
+            : getDefaultPathForSession(session),
         );
         return;
       }
@@ -164,12 +167,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const orderTakingTablet = session.role === 'ORDER_TAKER' && pathname === '/workshop/agenda';
-  const cashierWorkspace = session.role === 'CASHIER' && pathname === '/pos';
+  const posWorkspace = pathname === '/pos';
   const invoicePrintWorkspace = /^\/invoices\/[^/]+\/print$/.test(pathname);
-  const focusedWorkspace = orderTakingTablet || cashierWorkspace || invoicePrintWorkspace;
+  const focusedWorkspace = invoicePrintWorkspace;
 
   return (
-    <div className={cn('min-h-screen bg-zinc-100', orderTakingTablet && 'workshop-tablet-shell')}>
+    <div
+      className={cn(
+        'min-h-screen bg-zinc-100 print:min-h-0 print:bg-white',
+        orderTakingTablet && 'workshop-tablet-shell',
+      )}
+    >
       {!focusedWorkspace ? (
         <Sidebar
           collapsed={sidebarCollapsed}
@@ -179,7 +187,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div
         className={cn(
-          'min-h-screen pb-24 transition-[padding] duration-200 lg:pb-0',
+          'min-h-screen pb-24 transition-[padding] duration-200 print:min-h-0 lg:pb-0',
           focusedWorkspace && 'pb-0',
           focusedWorkspace ? 'lg:pl-0' : sidebarCollapsed ? 'lg:pl-[4.5rem]' : 'lg:pl-72',
           'print:pb-0 print:pl-0',
@@ -189,7 +197,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div
             className={cn(
               'flex items-center justify-between gap-3 px-3 sm:px-6',
-              cashierWorkspace ? 'h-12' : orderTakingTablet ? 'h-14' : 'h-16',
+              posWorkspace ? 'h-12' : orderTakingTablet ? 'h-14' : 'h-16',
             )}
           >
             <div className="flex min-w-0 items-center gap-3">
@@ -208,7 +216,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="truncate text-xs text-muted-foreground">
                     {orderTakingTablet
                       ? 'Taller'
-                      : cashierWorkspace
+                      : posWorkspace
                         ? 'Caja operativa'
                         : 'Operación del taller'}
                   </p>
@@ -275,7 +283,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn(
             'animate-page-enter mx-auto w-full max-w-[92rem] px-3 py-4 print:max-w-none print:p-0 sm:px-6 sm:py-6',
             focusedWorkspace && 'max-w-none sm:px-4 sm:py-4 lg:px-5 lg:py-4',
-            cashierWorkspace && 'px-3 py-2 sm:px-4 sm:py-2 md:h-[calc(100dvh-3rem)] md:overflow-hidden lg:px-4 lg:py-2',
+            posWorkspace &&
+              'px-3 py-2 sm:px-4 sm:py-2 md:h-[calc(100dvh-3rem)] md:overflow-hidden lg:px-4 lg:py-2',
           )}
         >
           {children}

@@ -1,48 +1,42 @@
-# Design QA — Taller
+# Design QA — Cotización OT: carrito y asistente de daños
 
 ## Source visual truth
 
-- References: the three selected workshop concepts supplied in the conversation on 2026-09-04.
-- Source assets:
-  - Orders: `C:\Users\luism\.codex\generated_images\019fec66-7422-7cf3-ba98-5280e81c172f\exec-98ac11eb-fc15-4147-82b6-906ca71cddc7.png`
-  - Reception: `C:\Users\luism\.codex\generated_images\019fec66-7422-7cf3-ba98-5280e81c172f\exec-e0b0a773-7867-48d9-8e30-9892ef9c6ff7.png`
-  - Workshop board: `C:\Users\luism\.codex\generated_images\019fec66-7422-7cf3-ba98-5280e81c172f\exec-8a355d07-b812-49e5-bf4b-fa99da7cc8f0.png`
-- Reference viewport: 1487 × 1057 px, desktop web application.
-- Target state: authenticated workshop dashboard with operational metrics, stage-based orders, filters, and a right-side daily rail.
+- Source: las dos capturas adjuntas por el usuario en la conversación actual.
+- Source pixel dimensions: 1041 × 727 px y 1070 × 512 px.
+- Intended viewport: aplicación web de escritorio, modal de orden de trabajo.
+- Target state: cotización editable con buscadores, carrito con partidas y mapa de daños con una zona seleccionada.
 
 ## Implementation evidence
 
-- Intended routes: `/workshop` (orders), `/workshop/reception` (reception), and `/workshop/board` (workshop board).
-- Vehicle directory: `/workshop/vehicles`.
+- Components: `apps/web/components/operations/workshop-view.tsx` y `apps/web/components/operations/vehicle-damage-map.tsx`.
+- Route: `/workshop`, etapa Cotización de una OT editable.
 - Implementation screenshot: unavailable.
-- Browser-rendered DOM, console inspection, and same-viewport screenshot: unavailable in this session because no controllable browser surface is provided.
-- HTTP availability only: every intended route plus `/workshop/vehicles`, `/pos`, and `/settings/fiscal-sequences` returned HTTP 200 after the production frontend build and restart. This is not visual evidence and is not used as a fidelity pass.
+- Browser-rendered DOM, interaction capture and console inspection: unavailable because this session does not expose a controllable browser surface.
+- Static verification: TypeScript passed, all 14 workshop UI tests passed, and the production Next.js build completed successfully. These checks are not used as visual evidence.
 
 ## Required fidelity surfaces
 
-The source and a browser-rendered implementation could not be placed into one comparison input. Therefore fonts/typography, spacing/layout rhythm, colors/tokens, image/icon fidelity, and visible copy/content have not been visually assessed for pass/fail.
+Fonts and typography, spacing/layout rhythm, colors/tokens, vehicle illustration fidelity, icon fidelity, and visible copy could not be compared against a browser-rendered implementation at the same viewport and state.
 
 ## Findings
 
-- [P1] Visual comparison is blocked.
-  - Location: `/workshop` desktop view.
-  - Evidence: the selected reference is available, but there is no implementation screenshot at the same viewport and authenticated state.
-  - Impact: fidelity to the selected operational table layout cannot be verified.
-  - Fix: capture an authenticated desktop screenshot of `/workshop`, compare it alongside the selected reference, then correct any P1/P2 differences.
-
-## Open questions
-
-- The selected reference contains example orders and mechanics while the local database may be empty; the populated-state visual comparison needs safe representative data or an existing operational dataset.
+- [P1] Visual and interaction comparison is blocked.
+  - Location: `/workshop`, Cotización → Mapa de daños → asistente por pasos and quote cart.
+  - Evidence: source screenshots are available, but no implementation screenshot or controllable browser session is available.
+  - Impact: responsive fit, modal height, cart density, focus behavior and the selected-zone summary cannot receive a visual pass.
+  - Fix: capture the authenticated editable quote state, test all four steps, add one part and one service, open the cart, and compare that result with the references.
 
 ## Implementation checklist
 
-1. Open `/workshop` while authenticated at the reference desktop viewport.
-2. Capture the populated order-board state and inspect the browser console.
-3. Compare it with the source reference and record any P0/P1/P2 fixes.
-4. Repeat capture after fixes.
+1. Open an editable OT quotation at a 1366–1920 px desktop width.
+2. Select a vehicle zone and complete Condición, Hallazgo, Nota técnica and Partidas.
+3. Verify the same concepts appear in the selected-zone summary and quote cart.
+4. Inspect responsive overflow, focus order and browser console.
+5. Capture and compare the final state with both source screenshots.
 
 ## Comparison history
 
-- No visual iteration has run because implementation capture is blocked.
+- No browser visual iteration could run in this session.
 
 **final result: blocked**

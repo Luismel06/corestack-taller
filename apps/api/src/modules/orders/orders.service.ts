@@ -117,7 +117,7 @@ export class OrdersService {
     if (
       !adminRoles.includes(membership.role) &&
       membership.role !== Role.CASHIER &&
-      !membership.canUsePos &&
+      !effectivePermissions(membership)['pos.sell'] &&
       order.createdById !== user.id
     ) {
       throw new ForbiddenException('Employee does not have permission to view this sales order.');
@@ -143,6 +143,8 @@ export class OrdersService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         status: ProductStatus.ACTIVE,
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
@@ -169,6 +171,8 @@ export class OrdersService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -384,10 +388,6 @@ export class OrdersService {
   async claim(tenantId: string, user: AuthenticatedUser, id: string, dto: ClaimSalesOrderDto) {
     const membership = await this.ensureCanUsePosForOrders(tenantId, user);
 
-    if (adminRoles.includes(membership.role)) {
-      throw new ForbiddenException('Admins cannot claim sales orders for charging.');
-    }
-
     const cashSession = await this.findOpenCashSessionForUser(tenantId, user.id, dto.cashSessionId);
     const now = new Date();
     const claimExpiresAt = new Date(now.getTime() + claimTtlMs);
@@ -441,7 +441,7 @@ export class OrdersService {
           throw new BadRequestException('Sales order has already been cancelled.');
         }
 
-        throw new BadRequestException('Sales order is already claimed by another cashier.');
+        throw new BadRequestException('Sales order is already claimed by another operator.');
       }
 
       await this.lockOpenCashSessionForUser(tx, tenantId, user.id, cashSession.id);
@@ -554,7 +554,7 @@ export class OrdersService {
           (membership.role === Role.ORDER_TAKER || adminRoles.includes(membership.role))) ||
         (order.claimedById === user.id &&
           order.status === SalesOrderStatus.IN_CASHIER &&
-          (membership.role === Role.CASHIER || membership.canUsePos));
+          effectivePermissions(membership)['pos.sell']);
 
       if (!canCancel) {
         throw new ForbiddenException(
@@ -579,7 +579,7 @@ export class OrdersService {
 
       if (order.workshopTicket) {
         throw new BadRequestException(
-          'Esta orden corresponde a una reparación terminada. Libera la toma de Caja si otro cajero la cobrará; no se puede cancelar como una venta de mostrador.',
+          'Esta orden corresponde a una reparación terminada. Libera la toma de Caja si otro operador la cobrará; no se puede cancelar como una venta de mostrador.',
         );
       }
 
@@ -972,6 +972,8 @@ export class OrdersService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         id: { in: Array.from(quantitiesByProduct.keys()) },
         status: ProductStatus.ACTIVE,
       },
@@ -1244,7 +1246,7 @@ export class OrdersService {
       select: { id: true },
     });
     if (!openSession) {
-      throw new BadRequestException('Selected cash session is no longer open for this cashier.');
+      throw new BadRequestException('Selected cash session is no longer open for this user.');
     }
   }
 
@@ -1303,7 +1305,7 @@ export class OrdersService {
   private ensureCanViewOrders(membership: AuthenticatedUser['memberships'][number]) {
     if (
       !adminRoles.includes(membership.role) &&
-      !membership.canUsePos &&
+      !effectivePermissions(membership)['pos.sell'] &&
       !effectivePermissions(membership)['sales.orders'] &&
       membership.role !== Role.CASHIER &&
       membership.role !== Role.ORDER_TAKER
@@ -1330,14 +1332,6 @@ export class OrdersService {
   private async ensureCanUsePosForOrders(tenantId: string, user: AuthenticatedUser) {
     requirePermissions(user, tenantId, 'pos.sell');
     const membership = this.getMembership(tenantId, user);
-
-    if (
-      !adminRoles.includes(membership.role) &&
-      !membership.canUsePos &&
-      membership.role !== Role.CASHIER
-    ) {
-      throw new ForbiddenException('Employee does not have POS access.');
-    }
 
     if (!adminRoles.includes(membership.role)) {
       await this.ensureActiveEmployeeProfile(tenantId, user.id, 'use POS');
@@ -1379,7 +1373,7 @@ export class OrdersService {
 
     if (!session) {
       throw new BadRequestException(
-        'An open cash session for this cashier is required to claim sales orders.',
+        'An open cash session for this user is required to claim sales orders.',
       );
     }
 

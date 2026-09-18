@@ -47,6 +47,8 @@ export class ProductsService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         ...(q ? { OR: this.searchConditions(q) } : {}),
       },
       include: {
@@ -67,6 +69,8 @@ export class ProductsService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         status: ProductStatus.ACTIVE,
         OR: this.searchConditions(query),
       },
@@ -85,6 +89,8 @@ export class ProductsService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -218,6 +224,8 @@ export class ProductsService {
         id,
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
       },
       include: {
         category: true,

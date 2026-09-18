@@ -60,15 +60,24 @@ export function canAccessPath(session: AuthSession | null | undefined, pathname:
   if (isPath('/access')) return true;
   // Toma de Órdenes works exclusively from its agenda workspace. The role keeps
   // its API permissions for reception actions, but must not enter admin screens.
-  if (session.role === 'ORDER_TAKER') return isPath('/workshop/agenda');
+  if (session.role === 'ORDER_TAKER') {
+    const legacyOrderSession =
+      session.permissions.canTakeOrders === true &&
+      typeof session.permissions['appointments.manage'] !== 'boolean';
+    if (legacyOrderSession && isPath('/orders')) return true;
+    if (pathname === '/workshop' || isPath('/workshop/agenda')) return true;
+    if (isPath('/pos')) return hasPermission(session, 'pos.sell');
+    if (/^\/invoices\/[^/]+\/print$/.test(pathname))
+      return hasPermission(session, 'invoices.reprint');
+    return false;
+  }
   // Specific route policies precede role fallbacks: an explicit denial also applies to admins.
   if (isPath('/workshop/vehicles')) return hasPermission(session, 'vehicles.view');
   if (isPath('/workshop/agenda')) return hasPermission(session, 'appointments.manage');
-  if (isPath('/workshop/bays') || isPath('/workshop/services'))
-    return hasPermission(session, 'workorders.view');
+  if (isPath('/workshop/services')) return hasPermission(session, 'workorders.view');
   if (isPath('/workshop')) return hasPermission(session, 'workorders.view');
   if (isPath('/employees')) return hasPermission(session, 'employees.manage');
-  if (isPath('/pos')) return hasPermission(session, 'pos.sell') && !isAdminSession(session);
+  if (isPath('/pos')) return hasPermission(session, 'pos.sell');
   if (isPath('/orders')) return canTakeOrders(session);
   if (isPath('/customers')) return hasPermission(session, 'customers.view');
   if (isPath('/products'))
@@ -78,6 +87,7 @@ export function canAccessPath(session: AuthSession | null | undefined, pathname:
   if (isPath('/cash/sessions'))
     return session.role !== 'CASHIER' && hasPermission(session, 'cash.view');
   if (isPath('/cash/logs')) return hasPermission(session, 'cash.view');
+  if (isPath('/cash/registers')) return false;
   if (isPath('/settings/fiscal-sequences')) return hasPermission(session, 'settings.fiscal');
   const erpRoutes: Record<string, string> = {
     '/suppliers': 'suppliers.view',
@@ -106,9 +116,6 @@ export function canAccessPath(session: AuthSession | null | undefined, pathname:
     );
   }
 
-  if (session.role === 'ADMIN' && (pathname === '/pos' || pathname.startsWith('/pos/'))) {
-    return false;
-  }
 
   if (pathname === '/quotations' || pathname.startsWith('/quotations/')) {
     return isAdminSession(session);
@@ -156,11 +163,11 @@ export function getDefaultPathForSession(session: AuthSession | null | undefined
         ? '/workshop/agenda'
         : session.role === 'RECEPTIONIST'
           ? '/workshop/agenda'
-        : session.role === 'CASHIER'
-          ? '/pos'
-          : hasPermission(session, 'workorders.view')
-            ? '/workshop'
-            : '/dashboard';
+          : session.role === 'CASHIER'
+            ? '/pos'
+            : hasPermission(session, 'workorders.view')
+              ? '/workshop'
+              : '/dashboard';
   return [
     preferred,
     '/workshop',

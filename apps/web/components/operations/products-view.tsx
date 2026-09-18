@@ -144,8 +144,8 @@ export function ProductsView() {
   return (
     <div className="space-y-6">
       <ModuleHeader
-        title="Productos"
-        description={`Catálogo de productos y servicios de ${brand.name}, precios e inventario desde PostgreSQL.`}
+        title="Repuestos"
+        description={`Catálogo de repuestos de ${brand.name}, con precios, existencias y códigos de identificación.`}
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -158,14 +158,14 @@ export function ProductsView() {
               setPage(1);
             }}
             className="bg-white pl-9"
-            placeholder="Buscar nombre, SKU, marca o codigo"
+            placeholder="Buscar repuesto por nombre, SKU, marca o código"
           />
         </div>
         {!readOnly ? (
           <Button asChild>
             <Link href="/products/new">
               <Plus className="h-4 w-4" />
-              Nuevo producto
+              Nuevo repuesto
             </Link>
           </Button>
         ) : null}
@@ -173,8 +173,8 @@ export function ProductsView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Catalogo</CardTitle>
-          <CardDescription>{products.length} productos activos o inactivos.</CardDescription>
+          <CardTitle>Catálogo de repuestos</CardTitle>
+          <CardDescription>{products.length} repuesto(s) activo(s) o inactivo(s).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <ProductPagination
@@ -214,7 +214,7 @@ export function ProductsView() {
                         {formatQuantity(product.reservedStock)} res.
                       </Badge>
                     ) : (
-                      <Badge variant="outline">Servicio</Badge>
+                      <Badge variant="outline">Sin control de stock</Badge>
                     )}
                   </div>
                 </div>
@@ -226,7 +226,7 @@ export function ProductsView() {
             <Table wrapperClassName="max-h-[65vh] rounded-md border border-border overflow-auto">
               <TableHeader className="sticky top-0 z-10 bg-card shadow-sm">
                 <TableRow>
-                  <TableHead>Producto</TableHead>
+                  <TableHead>Repuesto</TableHead>
                   <TableHead>Marca</TableHead>
                   <TableHead>Precio</TableHead>
                   <TableHead>Codigo</TableHead>
@@ -269,7 +269,7 @@ export function ProductsView() {
                             </p>
                           </div>
                         ) : (
-                          <Badge variant="outline">Servicio</Badge>
+                          <Badge variant="outline">Sin control de stock</Badge>
                         )}
                       </TableCell>
                       <TableCell>
@@ -351,11 +351,11 @@ export function ProductsView() {
         onClose={() => {
           if (!deleteMutation.isPending) setProductPendingDeactivation(null);
         }}
-        title="Desactivar producto"
-        description="El producto dejará de estar disponible para nuevas ventas. Su historial, movimientos e inventario se conservarán."
+        title="Desactivar repuesto"
+        description="El repuesto dejará de estar disponible para nuevas cotizaciones y ventas. Su historial, movimientos e inventario se conservarán."
         tone="danger"
         size="sm"
-        confirmLabel="Desactivar producto"
+        confirmLabel="Desactivar repuesto"
         cancelLabel="Cancelar"
         isPending={deleteMutation.isPending}
         onConfirm={() => {
@@ -369,7 +369,7 @@ export function ProductsView() {
           productPendingDeactivation ? (
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Producto
+                Repuesto
               </p>
               <p className="mt-0.5 font-semibold text-foreground">
                 {productPendingDeactivation.name}

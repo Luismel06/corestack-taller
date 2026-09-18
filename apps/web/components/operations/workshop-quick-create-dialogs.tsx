@@ -112,14 +112,19 @@ function Field({
   label,
   children,
   wide = false,
+  required = false,
 }: {
   label: string;
   children: ReactNode;
   wide?: boolean;
+  required?: boolean;
 }) {
   return (
     <label className={`grid gap-1.5 text-sm font-medium ${wide ? 'sm:col-span-2' : ''}`}>
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {required ? <span className="ml-1 text-red-500">*</span> : null}
+      </Label>
       {children}
     </label>
   );
@@ -184,7 +189,7 @@ export function QuickCustomerDialog({
         mutation.mutate();
       }}
     >
-      <Field label="Nombre completo" wide>
+      <Field label="Nombre completo" wide required>
         <Input
           autoFocus
           required
@@ -310,7 +315,7 @@ export function QuickVehicleDialog({
         mutation.mutate();
       }}
     >
-      <Field label="Tipo de vehículo">
+      <Field label="Tipo de vehículo" required>
         <select
           autoFocus
           required
@@ -339,7 +344,7 @@ export function QuickVehicleDialog({
           placeholder="A123456"
         />
       </Field>
-      <Field label="Marca">
+      <Field label="Marca" required>
         <Input
           required
           maxLength={80}
@@ -348,7 +353,7 @@ export function QuickVehicleDialog({
           placeholder="Toyota"
         />
       </Field>
-      <Field label="Modelo">
+      <Field label="Modelo" required>
         <Input
           required
           maxLength={80}

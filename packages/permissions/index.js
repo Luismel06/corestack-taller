@@ -25,7 +25,6 @@ const permissionLabels = {
   'reception.manage': 'Registrar y editar recepción',
   'appointments.manage': 'Gestionar citas',
   'services.manage': 'Gestionar catálogo de servicios',
-  'bays.manage': 'Configurar bahías',
   'inventory.view': 'Consultar inventario',
   'inventory.workshop_parts': 'Entregar, devolver y liberar repuestos de OT',
   'inventory.adjust': 'Ajustar inventario',
@@ -80,8 +79,8 @@ const permissionLabels = {
 const permissions = Object.keys(permissionLabels);
 const roleLabels = {
   ADMIN: 'Administrador',
-  CASHIER: 'Cajero',
-  ORDER_TAKER: 'Toma de Órdenes',
+  ORDER_TAKER: 'Coordinador',
+  ACCOUNTANT: 'Contador',
   MECHANIC: 'Mecánico (recurso)',
 };
 const readWorkshop = ['workorders.view', 'vehicles.view', 'customers.view', 'inventory.view'];
@@ -121,7 +120,7 @@ const supervisor = [
   'tasks.cancel',
   'inventory.workshop_parts',
 ];
-const admin = permissions.filter((key) => !['pos.sell', 'cash.open'].includes(key));
+const admin = [...permissions];
 const accountingRead = [
   'suppliers.view',
   'purchasing.view',
@@ -133,7 +132,16 @@ const accountingRead = [
 ];
 const rolePermissions = {
   ADMIN: admin,
-  MANAGER: admin.filter((key) => !['employees.manage', 'settings.fiscal'].includes(key)),
+  MANAGER: admin.filter(
+    (key) =>
+      ![
+        'employees.manage',
+        'settings.fiscal',
+        'pos.sell',
+        'cash.open',
+        'cash.close',
+      ].includes(key),
+  ),
   SERVICE_ADVISOR: advisor,
   RECEPTIONIST: reception,
   SUPERVISOR: supervisor,
@@ -182,16 +190,37 @@ const rolePermissions = {
     'supplier_invoices.manage',
     'inventory.receive',
     'payables.pay',
+    'payables.cancel_payment',
     'receivables.collect',
+    'receivables.cancel_payment',
     'invoices.view',
+    'invoices.manage',
+    'invoices.cancel',
+    'invoices.void',
     'customers.view',
     'inventory.view',
     'reports.financial',
     'cash.view',
     'invoices.reprint',
+    'credit.approve',
+    'returns.view',
+    'returns.view_all',
+    'returns.approve',
+    'settings.fiscal',
   ],
   // Preserve the prior advisor's operational access when migrating.
-  ORDER_TAKER: [...advisor, 'workorders.quality', 'workorders.cancel', 'inventory.workshop_parts'],
+  ORDER_TAKER: [
+    ...advisor,
+    'workorders.quality',
+    'inventory.workshop_parts',
+    'inventory.adjust',
+    'products.manage',
+    'services.manage',
+    'pos.sell',
+    'cash.open',
+    'cash.close',
+    'invoices.reprint',
+  ],
   SUPER_ADMIN: permissions,
   QORVEX_SUPER_ADMIN: permissions,
 };
@@ -233,6 +262,9 @@ function effectivePermissions(membership) {
   // User/access administration remains a tenant administrator responsibility.
   if (!['ADMIN', 'SUPER_ADMIN', 'QORVEX_SUPER_ADMIN'].includes(membership.role))
     granted.delete('employees.manage');
+  // El coordinador administra todo el flujo operativo, pero una OT creada se conserva
+  // como expediente. Las citas pendientes se cancelan con appointments.manage.
+  if (membership.role === 'ORDER_TAKER') granted.delete('workorders.cancel');
   return Object.fromEntries(permissions.map((permission) => [permission, granted.has(permission)]));
 }
 function legacyPermissions(effective) {

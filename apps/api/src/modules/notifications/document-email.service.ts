@@ -219,14 +219,16 @@ export class DocumentEmailService {
             total: new Prisma.Decimal(line.total!),
           }))
       : [];
+    const subtotal = quote.laborTotal.add(quote.partsTotal).toDecimalPlaces(2);
+    const taxTotal = Prisma.Decimal.max(quote.total.sub(subtotal), 0).toDecimalPlaces(2);
     const templateVariables = this.variables({
       workshopName,
       customerName: ticket.customer.name,
       documentNumber,
       documentLabel: 'Cotización de taller',
       vehicle,
-      subtotal: quote.laborTotal.add(quote.partsTotal).toString(),
-      taxTotal: '0',
+      subtotal: subtotal.toString(),
+      taxTotal: taxTotal.toString(),
       discountTotal: '0',
       total: quote.total.toString(),
       ticketNumber: ticket.ticketNumber,
@@ -249,8 +251,8 @@ export class DocumentEmailService {
         documentNumber,
         vehicle,
         items: snapshotItems.length ? snapshotItems : ticket.lines,
-        subtotal: quote.laborTotal.add(quote.partsTotal),
-        taxTotal: new Prisma.Decimal(0),
+        subtotal,
+        taxTotal,
         discountTotal: new Prisma.Decimal(0),
         total: quote.total,
         note: ticket.customerNotes,

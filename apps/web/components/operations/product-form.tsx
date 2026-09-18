@@ -37,7 +37,6 @@ type ProductFormState = {
   stock: string;
   minStock: string;
   status: string;
-  trackInventory: boolean;
 };
 
 const defaultState: ProductFormState = {
@@ -53,7 +52,6 @@ const defaultState: ProductFormState = {
   stock: '0',
   minStock: '0',
   status: 'ACTIVE',
-  trackInventory: true,
 };
 
 export function ProductForm({ productId }: { productId?: string }) {
@@ -92,7 +90,6 @@ export function ProductForm({ productId }: { productId?: string }) {
         stock: String(productQuery.data.stock),
         minStock: String(productQuery.data.minStock),
         status: productQuery.data.status,
-        trackInventory: productQuery.data.trackInventory,
       });
     }
   }, [loadedProductId, productQuery.data]);
@@ -120,7 +117,7 @@ export function ProductForm({ productId }: { productId?: string }) {
             : 0,
         minStock: Number(form.minStock),
         status: form.status,
-        trackInventory: form.trackInventory,
+        trackInventory: true,
       };
 
       if (productId) {
@@ -131,11 +128,11 @@ export function ProductForm({ productId }: { productId?: string }) {
     },
     onSuccess: async (product) => {
       await queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast.success('Producto guardado', { description: product.name });
+      toast.success('Repuesto guardado', { description: product.name });
       router.push('/products');
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : 'No se pudo guardar el producto.');
+      toast.error(error instanceof Error ? error.message : 'No se pudo guardar el repuesto.');
     },
   });
 
@@ -218,13 +215,13 @@ export function ProductForm({ productId }: { productId?: string }) {
   return (
     <div className="space-y-6">
       <ModuleHeader
-        title={productId ? 'Editar producto' : 'Nuevo producto'}
-        description={`Datos persistidos en PostgreSQL para el catálogo operativo de ${brand.name}.`}
+        title={productId ? 'Editar repuesto' : 'Nuevo repuesto'}
+        description={`Datos del repuesto, precio y existencias para el catálogo operativo de ${brand.name}.`}
       />
 
       <Card>
         <CardHeader>
-          <CardTitle>Ficha del producto</CardTitle>
+          <CardTitle>Ficha del repuesto</CardTitle>
           <CardDescription>
             El sistema valida duplicados de SKU y código de barras dentro de la empresa.
           </CardDescription>
@@ -426,14 +423,6 @@ export function ProductForm({ productId }: { productId?: string }) {
                 required
               />
             </Field>
-            <label className="flex items-center gap-2 pt-7 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={form.trackInventory}
-                onChange={(event) => updateField('trackInventory', event.target.checked)}
-              />
-              Controlar inventario
-            </label>
             <div className="md:col-span-2">
               <Button type="submit" disabled={saveMutation.isPending}>
                 <Save className="h-4 w-4" />

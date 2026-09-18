@@ -14,7 +14,6 @@ export const accessSections = [
       'reception',
       'appointments',
       'services',
-      'bays',
       'customers',
     ],
   },

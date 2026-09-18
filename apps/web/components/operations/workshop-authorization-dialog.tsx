@@ -124,7 +124,9 @@ export function WorkshopAuthorizationDialog({
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor={`${id}-name`}>Persona que respondió</Label>
+          <Label htmlFor={`${id}-name`}>
+            Persona que respondió <span className="text-red-500">*</span>
+          </Label>
           <Input
             id={`${id}-name`}
             required
@@ -134,9 +136,12 @@ export function WorkshopAuthorizationDialog({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor={`${id}-method`}>Medio de autorización</Label>
+          <Label htmlFor={`${id}-method`}>
+            Medio de autorización <span className="text-red-500">*</span>
+          </Label>
           <select
             id={`${id}-method`}
+            required
             className="input-select"
             value={method}
             onChange={(event) =>

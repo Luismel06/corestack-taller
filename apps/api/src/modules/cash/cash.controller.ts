@@ -6,7 +6,6 @@ import { TenantMembershipGuard } from '../../common/guards/tenant-membership.gua
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { CashService } from './cash.service';
 import { CloseCashSessionDto } from './dto/close-cash-session.dto';
-import { CreateCashRegisterDto } from './dto/create-cash-register.dto';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { OpenCashSessionDto } from './dto/open-cash-session.dto';
 
@@ -18,15 +17,6 @@ export class CashController {
   @Get('registers')
   findRegisters(@TenantId() tenantId: string) {
     return this.cashService.findRegisters(tenantId);
-  }
-
-  @Post('registers')
-  createRegister(
-    @TenantId() tenantId: string,
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateCashRegisterDto,
-  ) {
-    return this.cashService.createRegister(tenantId, user, dto);
   }
 
   @Get('sessions')

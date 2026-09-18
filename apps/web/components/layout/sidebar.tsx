@@ -2,7 +2,6 @@
 
 import {
   Activity,
-  Building2,
   BadgeDollarSign,
   CalendarDays,
   Car,
@@ -37,7 +36,6 @@ import { cn } from '@/lib/utils';
 
 type NavigationSectionId =
   | 'main'
-  | 'workshop'
   | 'customers'
   | 'inventory'
   | 'accounting'
@@ -62,7 +60,6 @@ type NavigationSection = {
 
 const sectionDefinitions: Array<Pick<NavigationSection, 'id' | 'label' | 'icon'>> = [
   { id: 'main' },
-  { id: 'workshop' },
   { id: 'customers', label: 'Clientes y vehículos', icon: Users },
   { id: 'inventory', label: 'Inventario y compras', icon: Package },
   { id: 'accounting', label: 'Gestión financiera', icon: Landmark },
@@ -72,21 +69,23 @@ const sectionDefinitions: Array<Pick<NavigationSection, 'id' | 'label' | 'icon'>
 
 export const navigation: NavigationItem[] = [
   { name: 'Panel operativo', href: '/dashboard', icon: LayoutDashboard, section: 'main' },
-  { name: 'Agenda', href: '/workshop/agenda', icon: CalendarDays, section: 'workshop' },
-  { name: 'Órdenes de trabajo', href: '/workshop', icon: Wrench, section: 'workshop' },
-  { name: 'Cotizaciones', href: '/quotations', icon: FileText, section: 'workshop' },
+  { name: 'Agenda', href: '/workshop/agenda', icon: CalendarDays, section: 'main' },
+  { name: 'Órdenes de trabajo', href: '/workshop', icon: Wrench, section: 'main' },
+  { name: 'Cotizaciones', href: '/quotations', icon: FileText, section: 'main' },
+  { name: 'Caja', href: '/pos', icon: ShoppingCart, section: 'main' },
+  { name: 'Empleados', href: '/employees', icon: Users, section: 'main' },
   { name: 'Clientes', href: '/customers', icon: Users, section: 'customers' },
   { name: 'Vehículos', href: '/workshop/vehicles', icon: Car, section: 'customers' },
-  { name: 'Repuestos e inventario', href: '/products', icon: Package, section: 'inventory' },
+  { name: 'Repuestos', href: '/products', icon: Package, section: 'inventory' },
+  { name: 'Servicios', href: '/workshop/services', icon: Wrench, section: 'inventory' },
   { name: 'Suplidores', href: '/suppliers', icon: Users, section: 'inventory' },
-  { name: 'Compras', href: '/purchase-orders', icon: ClipboardPlus, section: 'inventory' },
+  { name: 'Órdenes de compra', href: '/purchase-orders', icon: ClipboardPlus, section: 'inventory' },
   {
     name: 'Facturas de suplidores',
     href: '/supplier-invoices',
     icon: FileText,
     section: 'inventory',
   },
-  { name: 'POS y Caja', href: '/pos', icon: ShoppingCart, section: 'accounting' },
   { name: 'Facturación', href: '/invoices', icon: FileText, section: 'accounting' },
   { name: 'Cuentas por cobrar', href: '/receivables', icon: FileText, section: 'accounting' },
   {
@@ -107,10 +106,6 @@ export const navigation: NavigationItem[] = [
   { name: 'Sesiones de caja', href: '/cash/sessions', icon: ScrollText, section: 'logs' },
   { name: 'Movimiento de caja', href: '/cash/logs', icon: ClipboardList, section: 'logs' },
   { name: 'Logs operativos', href: '/operations/logs', icon: Activity, section: 'logs' },
-  { name: 'Empleados y mecánicos', href: '/employees', icon: Users, section: 'settings' },
-  { name: 'Servicios', href: '/workshop/services', icon: Wrench, section: 'settings' },
-  { name: 'Bahías', href: '/workshop/bays', icon: Building2, section: 'settings' },
-  { name: 'Cajas', href: '/cash/registers', icon: Landmark, section: 'settings' },
   { name: 'Importaciones', href: '/settings/imports', icon: FileUp, section: 'settings' },
   { name: 'Configuración', href: '/settings', icon: Settings, section: 'settings' },
 ];
@@ -624,10 +619,20 @@ export function getNavigationSections(session: AuthSession | null): NavigationSe
 
 export function getVisibleNavigation(session: AuthSession | null) {
   if (session?.role === 'ORDER_TAKER') {
-    return navigation.filter((item) => item.href === '/workshop/agenda' && canAccessPath(session, item.href));
+    return navigation.filter(
+      (item) =>
+        ['/workshop/agenda', '/workshop', '/pos'].includes(item.href) &&
+        canAccessPath(session, item.href),
+    );
   }
   if (session?.role === 'MECHANIC') return [];
-  return navigation.filter((item) => canAccessPath(session, item.href));
+  return navigation
+    .filter((item) => canAccessPath(session, item.href))
+    .map((item) =>
+      item.href === '/dashboard' && ['ACCOUNTANT', 'ACCOUNTING'].includes(session?.role ?? '')
+        ? { ...item, name: 'Panel contable' }
+        : item,
+    );
 }
 
 function getMobileQuickNavigation(items: NavigationItem[]) {

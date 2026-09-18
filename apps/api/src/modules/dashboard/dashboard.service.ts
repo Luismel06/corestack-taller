@@ -54,6 +54,120 @@ const terminalPurchaseOrderStatuses: PurchaseOrderStatus[] = [
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async getOperationalSummary(tenantId: string) {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const seriesStart = new Date(todayStart);
+    seriesStart.setDate(seriesStart.getDate() - 6);
+
+    const [
+      invoicesForSeries,
+      returnsForSeries,
+      completedOrdersToday,
+      pendingInvoices,
+      openCashSessions,
+      productsForStock,
+      recentInvoices,
+      recentAuditActivity,
+    ] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: {
+          tenantId,
+          status: { in: revenueStatuses },
+          issuedAt: { gte: seriesStart },
+        },
+        select: { issuedAt: true, paidAmount: true, total: true },
+      }),
+      this.prisma.returnRequest.findMany({
+        where: {
+          tenantId,
+          status: ReturnRequestStatus.COMPLETED,
+          completedAt: { gte: seriesStart },
+        },
+        select: { completedAt: true, refundAmount: true },
+      }),
+      this.prisma.salesOrder.count({
+        where: { tenantId, status: SalesOrderStatus.COMPLETED, completedAt: { gte: todayStart } },
+      }),
+      this.prisma.invoice.count({
+        where: { tenantId, status: { in: pendingInvoiceStatuses } },
+      }),
+      this.prisma.cashSession.count({
+        where: { tenantId, status: CashSessionStatus.OPEN },
+      }),
+      this.prisma.product.findMany({
+        where: { tenantId, status: ProductStatus.ACTIVE, trackInventory: true },
+        select: { stock: true, reservedStock: true, minStock: true },
+      }),
+      this.prisma.invoice.findMany({
+        relationLoadStrategy: 'join',
+        where: { tenantId },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          issuedAt: true,
+          createdAt: true,
+          customer: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      this.prisma.auditLog.findMany({
+        relationLoadStrategy: 'join',
+        where: { tenantId, action: 'DOCUMENT_EMAIL_SENT' },
+        select: {
+          id: true,
+          action: true,
+          entity: true,
+          entityId: true,
+          createdAt: true,
+          user: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
+      }),
+    ]);
+
+    const invoicesToday = invoicesForSeries.filter(
+      (invoice) => invoice.issuedAt && invoice.issuedAt >= todayStart,
+    );
+    const returnsToday = returnsForSeries.filter(
+      (returnRequest) => returnRequest.completedAt && returnRequest.completedAt >= todayStart,
+    );
+
+    return {
+      netSalesToday:
+        this.sumInvoicePaidAmount(invoicesToday) -
+        returnsToday.reduce(
+          (total, returnRequest) => total + this.decimalToNumber(returnRequest.refundAmount),
+          0,
+        ),
+      completedOrdersToday,
+      pendingInvoices,
+      openCashSessions,
+      lowStockProducts: productsForStock.filter(
+        (product) => product.stock - product.reservedStock <= product.minStock,
+      ).length,
+      recentInvoices: recentInvoices.map((invoice) => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerName: invoice.customer?.name ?? 'Consumidor final',
+        issuedAt: invoice.issuedAt,
+        createdAt: invoice.createdAt,
+      })),
+      recentAuditActivity: recentAuditActivity.map((activity) => ({
+        id: activity.id,
+        action: activity.action,
+        entity: activity.entity,
+        entityId: activity.entityId,
+        userName: activity.user?.name ?? null,
+        createdAt: activity.createdAt,
+      })),
+      salesLast7Days: this.buildDailySalesSeries(invoicesForSeries, returnsForSeries, now),
+    };
+  }
+
   async getSummary(tenantId: string) {
     const now = new Date();
     const todayStart = new Date(now);

@@ -20,6 +20,11 @@ export class DashboardController {
     return this.dashboardService.getSummary(tenantId);
   }
 
+  @Get('operational-summary')
+  operationalSummary(@TenantId() tenantId: string) {
+    return this.dashboardService.getOperationalSummary(tenantId);
+  }
+
   @Get('product-sales')
   productSales(@TenantId() tenantId: string) {
     return this.dashboardService.getProductSales(tenantId);

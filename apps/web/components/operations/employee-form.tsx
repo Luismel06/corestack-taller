@@ -50,7 +50,7 @@ const defaultState: EmployeeFormState = {
   email: '',
   phone: '',
   password: '',
-  role: 'CASHIER',
+  role: 'ORDER_TAKER',
   employeeCode: '',
   jobTitle: '',
   documentNumber: '',
@@ -72,7 +72,8 @@ const defaultState: EmployeeFormState = {
 };
 
 function assignableRole(role: string) {
-  if (['ADMIN', 'CASHIER', 'ORDER_TAKER', 'MECHANIC'].includes(role)) return role;
+  if (['ADMIN', 'ORDER_TAKER', 'ACCOUNTANT', 'MECHANIC'].includes(role)) return role;
+  if (role === 'CASHIER') return 'ORDER_TAKER';
   if (['SERVICE_ADVISOR', 'RECEPTIONIST', 'SUPERVISOR'].includes(role)) return 'ORDER_TAKER';
   return 'ADMIN';
 }
@@ -102,7 +103,7 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
   useEffect(() => {
     if (employeeQuery.data && loadedEmployeeId !== employeeQuery.data.id) {
       const membership = employeeQuery.data.user.memberships[0];
-      const role = assignableRole(membership?.role ?? 'CASHIER');
+      const role = assignableRole(membership?.role ?? 'ORDER_TAKER');
       setLoadedEmployeeId(employeeQuery.data.id);
       setOverrides(membership?.permissionOverrides ?? {});
       setForm({
@@ -187,8 +188,8 @@ export function EmployeeForm({ employeeId }: { employeeId?: string }) {
           <CardTitle>Perfil y permisos</CardTitle>
           <CardDescription>
             {limitQuery.data
-              ? `${limitQuery.data.used}/${limitQuery.data.limit} usuarios activos. Crear o reactivar un usuario requiere un cupo disponible.`
-              : 'Máximo de cinco usuarios activos por empresa.'}
+              ? `${limitQuery.data.used}/${limitQuery.data.limit} usuarios administrativos activos y ${limitQuery.data.mechanics} mecánicos. Los mecánicos no consumen cupos.`
+              : 'Máximo de cinco usuarios administrativos activos. Los mecánicos no tienen límite.'}
           </CardDescription>
         </CardHeader>
         <CardContent>

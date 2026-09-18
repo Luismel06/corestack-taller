@@ -24,8 +24,8 @@ const billed = (status, balance) => ({
   },
 });
 
-test('la aprobación habilita facturación antes de iniciar la reparación', () => {
-  assert.equal(workshopPaymentState(ticket).key, 'NOT_READY');
+test('la aprobación habilita la etapa de facturación', () => {
+  assert.equal(workshopPaymentState(ticket).key, 'READY');
   assert.equal(workshopPaymentState(approved).canPrepare, true);
   assert.equal(workshopPaymentState(approved).fullyPaid, false);
   assert.equal(workshopPaymentState(queued).key, 'QUEUED');
@@ -43,16 +43,10 @@ test('emitir factura no equivale a pago: saldo y confirmación deben coincidir',
     assert.equal(workshopPaymentState(billed(status, '0.01')).canDeliver, false);
   }
   assert.equal(workshopPaymentState(billed('ISSUED', '0')).key, 'REVIEW');
-  assert.equal(workshopPaymentState(billed('PAID', '0.00')).canDeliver, true);
-  assert.equal(
-    workshopPaymentState({ ...billed('PAID', '0'), qualityCheck: { status: 'REJECTED' } })
-      .canDeliver,
-    false,
-  );
-  assert.equal(
-    workshopPaymentState({ ...billed('PAID', '0'), status: 'IN_PROGRESS' }).canDeliver,
-    false,
-  );
+  const paid = workshopPaymentState(billed('PAID', '0.00'));
+  assert.equal(paid.key, 'PAID');
+  assert.equal(paid.fullyPaid, true);
+  assert.equal(paid.canDeliver, false);
 });
 test('anulaciones, saldos inválidos y órdenes cerradas no aparecen como pagadas', () => {
   for (const status of ['CANCELLED', 'VOID', 'VOIDED']) {

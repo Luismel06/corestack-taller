@@ -34,6 +34,7 @@ import {
   SalesOrderDestination,
   SalesOrderStatus,
   WarehouseMovementType,
+  WorkshopTicketStatus,
 } from '@qorvex/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-request';
@@ -95,6 +96,8 @@ export class PosService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         status: ProductStatus.ACTIVE,
         OR: query
           ? [
@@ -118,6 +121,8 @@ export class PosService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         status: ProductStatus.ACTIVE,
         OR: [{ barcode: { in: lookupCandidates } }, { sku: { in: lookupCandidates } }],
       },
@@ -166,13 +171,7 @@ export class PosService {
 
   async completeSale(tenantId: string, user: AuthenticatedUser, dto: CompleteSaleDto) {
     requirePermissions(user, tenantId, 'pos.sell');
-    const membership = await this.ensureCanUsePos(tenantId, user);
-
-    if (this.isAdminMembership(membership)) {
-      throw new ForbiddenException(
-        'Admins cannot complete POS sales. Cashiers must charge orders.',
-      );
-    }
+    await this.ensureCanUsePos(tenantId, user);
 
     if (!dto.orderId && !dto.checkoutKey) {
       throw new BadRequestException(
@@ -630,9 +629,30 @@ export class PosService {
             },
             data: { invoiceId: invoice.id },
           });
+          const delivered = await tx.workshopTicket.updateMany({
+            where: {
+              id: order.workshopTicket.id,
+              tenantId,
+              status: { notIn: [WorkshopTicketStatus.DELIVERED, WorkshopTicketStatus.CANCELLED] },
+            },
+            data: {
+              status: WorkshopTicketStatus.DELIVERED,
+              deliveredAt: issuedAt,
+            },
+          });
+          if (delivered.count === 1) {
+            await tx.workshopTicketStatusEvent.create({
+              data: {
+                tenantId,
+                ticketId: order.workshopTicket.id,
+                fromStatus: order.workshopTicket.status,
+                toStatus: WorkshopTicketStatus.DELIVERED,
+                note: `Factura ${invoice.invoiceNumber} emitida en Caja.`,
+                createdById: user.id,
+              },
+            });
+          }
         }
-        // Una factura pagada deja la OT lista para entrega. La entrega física se
-        // registra por separado, con la persona receptora y kilometraje de salida.
       }
 
       if (isCreditSale && customer) {
@@ -861,7 +881,7 @@ export class PosService {
         throw new BadRequestException('Sales order has already been cancelled.');
       }
 
-      throw new BadRequestException('Sales order is already claimed by another cashier.');
+      throw new BadRequestException('Sales order is already claimed by another operator.');
     }
 
     return tx.salesOrder.findUniqueOrThrow({
@@ -869,7 +889,7 @@ export class PosService {
       include: {
         customer: true,
         creditApproval: true,
-        workshopTicket: { select: { id: true, ticketNumber: true } },
+        workshopTicket: { select: { id: true, ticketNumber: true, status: true } },
         items: {
           include: {
             product: true,
@@ -900,6 +920,8 @@ export class PosService {
       where: {
         tenantId,
         inventoryDestination: ProductInventoryDestination.SALES_INVENTORY,
+        trackInventory: true,
+        workshopServiceProfile: null,
         id: {
           in: Array.from(quantitiesByProduct.keys()),
         },
@@ -1336,7 +1358,7 @@ export class PosService {
 
     if (!session) {
       throw new BadRequestException(
-        'An open cash session for this cashier is required to complete POS sales.',
+        'An open cash session for this user is required to complete POS sales.',
       );
     }
 
@@ -1383,33 +1405,22 @@ export class PosService {
       select: { id: true },
     });
     if (!openSession) {
-      throw new BadRequestException('Selected cash session is no longer open for this cashier.');
+      throw new BadRequestException('Selected cash session is no longer open for this user.');
     }
   }
 
   private async ensureCanCreateDirectSale(tenantId: string, user: AuthenticatedUser) {
-    const membership = await this.ensureCanUsePos(tenantId, user);
-
-    if (this.isAdminMembership(membership)) {
-      throw new ForbiddenException(
-        'La venta directa requiere un usuario autorizado para operar Caja.',
-      );
-    }
-
-    return membership;
+    return this.ensureCanUsePos(tenantId, user);
   }
 
   private async ensureCanUsePos(tenantId: string, user: AuthenticatedUser) {
+    requirePermissions(user, tenantId, 'pos.sell');
     const membership =
       user.memberships.find((candidate) =>
         ([Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN] as Role[]).includes(candidate.role),
       ) ?? user.memberships.find((candidate) => candidate.tenantId === tenantId);
 
-    if (
-      !membership ||
-      membership.status !== 'ACTIVE' ||
-      (!membership.canUsePos && ![...adminRoles, Role.CASHIER].includes(membership.role))
-    ) {
+    if (!membership || membership.status !== 'ACTIVE') {
       throw new ForbiddenException('Employee does not have POS access.');
     }
 

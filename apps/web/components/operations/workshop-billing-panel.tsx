@@ -27,7 +27,7 @@ export function WorkshopBillingPanel({
   const invoice = order?.invoice;
   return (
     <section
-      aria-label="Facturación y cobro de la reparación"
+      aria-label="Facturación y cierre de la orden"
       className="min-w-0 rounded-lg border border-border bg-card p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -43,8 +43,7 @@ export function WorkshopBillingPanel({
         {[
           ['1. Presupuesto aprobado', ['APPROVED', 'PARTIALLY_APPROVED'].includes(ticket.approvalStatus)],
           ['2. Factura emitida', Boolean(invoice)],
-          ['3. Reparación y calidad', ticket.qualityCheck?.status === 'APPROVED'],
-          ['4. Entrega', Boolean(ticket.delivery)],
+          ['3. Orden entregada', ticket.status === 'DELIVERED'],
         ].map(([label, done]) => (
           <li
             key={String(label)}
@@ -100,7 +99,7 @@ export function WorkshopBillingPanel({
       </div>
       {order && !invoice && !canAccessPath(session, '/pos') ? (
         <p className="mt-2 text-xs text-muted-foreground">
-          El cobro lo realiza un empleado habilitado en POS y Caja.
+          El cobro se realiza desde POS y Caja.
         </p>
       ) : null}
     </section>

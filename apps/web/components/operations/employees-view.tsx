@@ -48,29 +48,24 @@ export function EmployeesView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground" role="status">
           {limitQuery.data
-            ? `${limitQuery.data.used} de ${limitQuery.data.limit} usuarios activos. Incluye administradores.`
+            ? `${limitQuery.data.used} de ${limitQuery.data.limit} usuarios administrativos activos · ${limitQuery.data.mechanics} mecánicos (sin límite).`
             : 'Consultando cupos de usuarios…'}
           {limitQuery.error ? ' No se pudieron consultar los cupos.' : ''}
         </p>
-        {limitQuery.data && limitQuery.data.available > 0 ? (
-          <Button asChild>
-            <Link href="/employees/new">
-              <Plus className="h-4 w-4" />
-              Nuevo empleado
-            </Link>
-          </Button>
-        ) : (
-          <Button disabled>
-            Límite de usuarios {limitQuery.data ? 'alcanzado' : 'no disponible'}
-          </Button>
-        )}
+        <Button asChild>
+          <Link href="/employees/new">
+            <Plus className="h-4 w-4" />
+            Nuevo empleado
+          </Link>
+        </Button>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Equipo {brand.name}</CardTitle>
           <CardDescription>
-            {employeesQuery.data?.length ?? 0} perfiles laborales registrados.
+            {employeesQuery.data?.length ?? 0} perfiles laborales registrados. Los mecánicos se
+            administran por separado de los cupos de acceso administrativo.
           </CardDescription>
         </CardHeader>
         <CardContent>

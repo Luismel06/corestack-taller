@@ -24,7 +24,7 @@ export class InvoicesController {
   }
 
   @Post()
-  @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN, Role.ACCOUNTANT)
   @RequirePermissions('invoices.manage')
   create(
     @TenantId() tenantId: string,
@@ -46,7 +46,7 @@ export class InvoicesController {
   }
 
   @Patch(':id')
-  @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN, Role.QORVEX_SUPER_ADMIN, Role.ADMIN, Role.ACCOUNTANT)
   @RequirePermissions('invoices.manage')
   update(
     @TenantId() tenantId: string,
